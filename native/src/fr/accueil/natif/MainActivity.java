@@ -482,10 +482,10 @@ public class MainActivity extends Activity {
         v.setTextSize(TypedValue.COMPLEX_UNIT_PX, sizePx);
         v.setTypeface(font(weight));
         v.setLetterSpacing(letterSpacing);
-        v.setAllCaps(caps);
         v.setTextColor(Color.WHITE);
         v.setIncludeFontPadding(false);
         v.setSingleLine(true);
+        v.setAllCaps(caps); // après setSingleLine, qui remplacerait la mise en majuscules
         v.setShadowLayer(.7f * vw, 0, 1, 0x59000000);
         return v;
     }
