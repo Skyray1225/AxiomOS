@@ -29,7 +29,8 @@ class Store {
     final Set<String> hidden = new LinkedHashSet<>();
     private final Map<String, double[]> usage = new HashMap<>(); // pkg -> {score, horodatage}
     boolean animations;
-    boolean lifeFx; // Thinking : effets de saison (feuilles, papillons, lucioles, étoiles filantes)
+    boolean lifeFx;
+    boolean halloween; // Thinking : décor d'Halloween à la place de la saison // Thinking : effets de saison (feuilles, papillons, lucioles, étoiles filantes)
     String theme, minMode; // thème ; apparence de Minimal : auto, light, dark
     // Kids : applis autorisées, code parent (4 flèches, ex. "U,U,L,R"), thème à retrouver en quittant Kids
     static final String[] KIDS_DEFAULT = {"com.google.android.youtube.tv", "com.disney.disneyplus", "com.vectorunit.purple.googleplay"};
@@ -47,6 +48,7 @@ class Store {
         hidden.addAll(h);
         animations = !"false".equals(sp.getString("animations", "true"));
         lifeFx = !"false".equals(sp.getString("effets", "true"));
+        halloween = "true".equals(sp.getString("halloween", "false"));
         theme = readString("theme", "photo");
         minMode = readString("minMode", "auto");
         kidsCode = readString("kidsCode", null);
@@ -114,6 +116,8 @@ class Store {
     void saveHidden() { put("hidden", new JSONArray(new ArrayList<>(hidden)).toString()); }
 
     void saveAnimations() { put("animations", animations ? "true" : "false"); }
+
+    void saveHalloween() { put("halloween", halloween ? "true" : "false"); }
 
     void saveLifeFx() { put("effets", lifeFx ? "true" : "false"); }
 

@@ -25,7 +25,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 5; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 9; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
 
     /* ===== Palettes du moment ===== */
@@ -99,9 +99,16 @@ final class Landscape {
                     null, null, false, null, new String[]{"#fff1a6", "#cbb0f2", "#ffffff"}, null, 35, .3, .65),
             new Season("automne", new String[]{"#e0dcae", "#cdc58b", "#ab9f66", "#83814e", "#5c623c"}, "#3a6248", "#ead2a5",
                     null, null, false, null, null, new String[]{"#d9893b", "#c8642f", "#e2b04a", "#b5552a", "#a8953f", "#cf7b35"}, 0, .38, .85),
+            new Season("halloween", new String[]{"#e0dcae", "#cdc58b", "#ab9f66", "#83814e", "#5c623c"}, "#3a6248", "#ead2a5",
+                    null, null, false, null, null, new String[]{"#d9893b", "#c8642f", "#e2b04a", "#b5552a", "#a8953f", "#cf7b35"}, 0, .38, .85),
             new Season("hiver", new String[]{"#f1f4f7", "#e5ebf0", "#d7e0e8", "#c6d2dc", "#b3c2cf"}, "#2d4c45", "#e9eef2",
                     "#e3eaf0", "#5d4f48", true, null, null, null, 0, .45, .85),
     };
+
+    /** Décor d'Halloween : couleurs de l'automne, citrouilles, tombes, hutte de sorcière. */
+    static boolean halloween(Season s) {
+        return s != null && "halloween".equals(s.id);
+    }
 
     static Season season(String id) {
         for (Season s : SEASONS) if (s.id.equals(id)) return s;
@@ -250,6 +257,7 @@ final class Landscape {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Rng rng;
+    private final double[] phases = new double[7]; // phase de la crête de chaque tranche
     /** Arbre dessiné, pour les effets de saison (feuilles qui tombent, lucioles). */
     static final class Tree {
         final float x, y, h;   // pied de l'arbre et hauteur, en pixels de l'image 1920 × 1080
@@ -399,6 +407,7 @@ final class Landscape {
             double t = i / (double) (LAYERS.length - 1);
             int col = i == 0 ? mix(hills[0], sky[2], .3) : ramp(hills, t);
             final double ph = r() * 6;
+            phases[i] = ph;
             Path ridge = new Path(), d = new Path();
             float minY = H;
             d.moveTo(-20, H);
@@ -488,6 +497,7 @@ final class Landscape {
 
             // massifs de fleurs dans les prés visibles au-dessus du dock (tirage à part)
             if (S.flowerCount > 0 && !night && (i == 3 || i == 4)) meadow(L, ph, i, col, S, p0.tree, lw);
+            boolean lit = night || indexOf(p0) == 2; // citrouilles et fenêtre allumées au crépuscule et la nuit
 
             // arbres, regroupés en bosquets
             if (TREES[i] > 0) {
@@ -526,6 +536,13 @@ final class Landscape {
                     } else parasol(x, y, h * .95, dark, light, mid, snowCol);
                     if (trees.size() == before) trees.add(new Tree(x, y, h, i, false, mid));
                 }
+            }
+
+            // Halloween : hutte de sorcière au second plan, citrouilles près du chemin
+            if (halloween(S)) {
+                if (i == 2) hut(L, ph, col, p0, lit, .45 * (1 - t));
+                if (i == 3 || i == 4) pumpkins(L, ph, i, col, lit);
+                if (i == 4) graves(LAYERS[3], phases[3], L, ph, col, p0, lw, lit); // le cimetière, bien visible
             }
 
             // fleurs au premier plan, selon la saison
@@ -585,6 +602,227 @@ final class Landscape {
         }
         boolean yellow = (color >> 16 & 255) > 230 && (color >> 8 & 255) > 200 && (color & 255) < 190;
         circle(x, y, rad * .32, fill(yellow ? c("#e8933a") : c("#f6c94a")));
+    }
+
+    /* ===== Halloween ===== */
+
+    /** Citrouilles sculptées posées sur la tranche, de part et d'autre du chemin et sur les côtés. */
+    private void pumpkins(Layer L, double ph, int i, int col, boolean lit) {
+        double sc = SCALE[i];
+        double[][] spots = i == 3
+                ? new double[][]{{-1, .5}, {1, .2}, {0, 0}, {0, 0}}
+                : new double[][]{{-1, .2}, {1, .6}, {0, 0}, {0, 0}, {0, 0}};
+        Rng pr = new Rng(666 + i);
+        for (double[] sp : spots) {
+            double x, y;
+            if (sp[0] != 0) { // au bord du chemin
+                double yy = yAt(L, 960, ph) + 14 + sp[1] * 20 * sc;
+                double[] pa = pathAt(Math.min(Math.max(yy, PATH_TOP), PATH_BOTTOM));
+                x = pa[0] + sp[0] * (pa[1] + 26 * sc);
+                y = yAt(L, x, ph) + 10 + sp[1] * 20 * sc;
+            } else { // ailleurs dans le pré
+                x = 120 + pr.r() * 1680;
+                y = yAt(L, x, ph) + 8 + pr.r() * 16 * sc;
+                double[] pa = pathAt(Math.min(Math.max(y, PATH_TOP), PATH_BOTTOM));
+                if (Math.abs(x - pa[0]) < pa[1] + 40) x += 260;
+            }
+            // formes variées : rondes ou aplaties, plus ou moins côtelées
+            pumpkin(x, y, (17 + pr.r() * 7) * sc * 1.6, .62 + pr.r() * .4, pr.r() < .5 ? 2 : 3, col, lit, pr.r() < .5);
+        }
+    }
+
+    /** Citrouille : côtes orange, tige, visage sculpté (yeux en triangle, bouche dentée), lueur la nuit. */
+    private void pumpkin(double x, double y, double r, double round, int ribs, int col, boolean lit, boolean grin) {
+        double h = r * round * 1.05; // round : .62 aplatie … 1 bien ronde
+        if (lit) { // lueur orangée autour de la citrouille
+            fill.setShader(new RadialGradient((float) x, (float) (y - h * .5), (float) (r * 3.2), 0x66FF9A2E, 0x00FF9A2E, Shader.TileMode.CLAMP));
+            circle(x, y - h * .5, r * 3.2, fill);
+        }
+        ellipse(x + r * .1, y, r * 1.15, r * .22, fill(mix(col, BLACK, .35), .35)); // ombre au sol
+        int base = c("#e2761f"), dark = c("#b4521a"), light = c("#f39a3c");
+        if (!lit) { base = mix(base, col, .12); dark = mix(dark, col, .12); light = mix(light, col, .12); }
+        double cy = y - h * .52;
+        // côtes : de l'extérieur (plus sombres) vers le centre
+        for (int k = ribs; k >= 1; k--) {
+            double off = r * .5 * k / ribs * (ribs == 3 ? 1.05 : 1), rw = r * (ribs == 3 ? .42 : .55);
+            int cc = k == ribs ? dark : mix(dark, base, .55);
+            ellipse(x - off, cy, rw, h * .5, fill(cc));
+            ellipse(x + off, cy, rw, h * .5, fill(cc));
+        }
+        ellipse(x, cy, r * (ribs == 3 ? .36 : .5), h * .52, fill(base));
+        ellipse(x - r * .3, cy - h * .12, r * .18, h * .28, fill(light, .55)); // reflet
+        // tige
+        Path st = new Path();
+        m(st, x - r * .07, cy - h * .45);
+        q(st, x - r * .05, cy - h * .78, x + r * .14, cy - h * .86);
+        l(st, x + r * .18, cy - h * .74);
+        q(st, x + r * .06, cy - h * .7, x + r * .08, cy - h * .45);
+        st.close();
+        cv.drawPath(st, fill(c("#5b6b2e")));
+        // visage
+        int face = lit ? c("#ffd75a") : c("#4a2410");
+        Path f = new Path();
+        m(f, x - r * .42, cy - h * .02); l(f, x - r * .27, cy - h * .3); l(f, x - r * .12, cy - h * .02); f.close();
+        m(f, x + r * .12, cy - h * .02); l(f, x + r * .27, cy - h * .3); l(f, x + r * .42, cy - h * .02); f.close();
+        m(f, x - r * .07, cy + h * .06); l(f, x, cy - h * .08); l(f, x + r * .07, cy + h * .06); f.close();
+        // bouche : arc denté
+        m(f, x - r * .5, cy + h * .14);
+        q(f, x, cy + h * (grin ? .62 : .48), x + r * .5, cy + h * .14);
+        l(f, x + r * .3, cy + h * .22);
+        l(f, x + r * .2, cy + h * .13);
+        l(f, x + r * .08, cy + h * .24);
+        l(f, x - r * .06, cy + h * .14);
+        l(f, x - r * .18, cy + h * .25);
+        l(f, x - r * .3, cy + h * .15);
+        f.close();
+        cv.drawPath(f, fill(face));
+    }
+
+    /**
+     * Petit cimetière au premier plan (tranche juste au-dessus du dock), là où la crête est la plus haute
+     * pour être bien visible : stèles arrondies et croix un peu penchées, deux bougies allumées.
+     */
+    private void graves(Layer L, double ph, Layer front, double phFront, int col, Palette p0, double lw, boolean lit) {
+        Rng gr = new Rng(1313);
+        double sc = SCALE[4];
+        // posé sur la crête au-dessus du dock, là où la colline de devant ne le cache pas
+        // (et loin du chemin et de la hutte) : les tombes et les bougies restent entières
+        double best = 300, bestGap = -1e9;
+        for (double x0 = 140; x0 <= 1560; x0 += 20) {
+            if (x0 + 230 > 800 && x0 < 1130) continue;   // chemin
+            if (x0 + 230 > 1340 && x0 < 1620) continue;  // hutte
+            double gap = 1e9;
+            for (int k = 0; k <= 5; k++) {
+                double x = x0 + k * 46, b = yAt(L, x, ph) + 10;
+                gap = Math.min(gap, Math.min(yAt(front, x, phFront) - b, 778 - b));
+            }
+            if (gap > bestGap) { bestGap = gap; best = x0; }
+        }
+        int stone = mix(mix(c("#a3a7ae"), p0.tree, lw * .7), col, .1);
+        int shade = mix(stone, BLACK, .3), light = mix(stone, WHITE, .3), mound = mix(col, BLACK, .2);
+        int n = 5;
+        double[] tx = new double[n], ty = new double[n], th = new double[n];
+        for (int k = 0; k < n; k++) {
+            double x = best + k * 52 + (gr.r() - .5) * 16, y = yAt(L, x, ph) + 6 + gr.r() * 8;
+            double h = (50 + gr.r() * 22) * sc * 1.25, w = h * .6;
+            tx[k] = x; ty[k] = y; th[k] = h;
+            double tilt = (gr.r() - .5) * 14;
+            ellipse(x, y, w * .95, h * .1, fill(mound));
+            cv.save();
+            cv.rotate((float) tilt, (float) x, (float) y);
+            if (k % 3 == 1) { // croix
+                double bw = w * .26;
+                cv.drawRect((float) (x - bw / 2), (float) (y - h), (float) (x + bw / 2), (float) y, fill(stone));
+                cv.drawRect((float) (x - w * .45), (float) (y - h * .78), (float) (x + w * .45), (float) (y - h * .78 + bw), fill(stone));
+                cv.drawRect((float) (x + bw * .1), (float) (y - h), (float) (x + bw / 2), (float) y, fill(shade));
+                cv.drawRect((float) (x + bw * .1), (float) (y - h * .78), (float) (x + w * .45), (float) (y - h * .78 + bw), fill(shade));
+            } else { // stèle arrondie
+                RectF top = new RectF((float) (x - w / 2), (float) (y - h), (float) (x + w / 2), (float) (y - h + w));
+                Path p = new Path();
+                m(p, x - w / 2, y);
+                l(p, x - w / 2, y - h + w / 2);
+                p.arcTo(top, 180, 180);
+                l(p, x + w / 2, y);
+                p.close();
+                cv.drawPath(p, fill(stone));
+                Path sd = new Path(); // face à l'ombre
+                m(sd, x + w * .22, y);
+                l(sd, x + w * .22, y - h + w * .1);
+                sd.arcTo(top, 300, 60);
+                l(sd, x + w / 2, y);
+                sd.close();
+                cv.drawPath(sd, fill(shade));
+                cv.drawRect((float) (x - w * .3), (float) (y - h * .6), (float) (x + w * .12), (float) (y - h * .6 + h * .05), fill(shade, .75));
+                cv.drawRect((float) (x - w * .3), (float) (y - h * .47), (float) (x + w * .04), (float) (y - h * .47 + h * .05), fill(shade, .75));
+                cv.drawRect((float) (x - w * .46), (float) (y - h + w * .5), (float) (x - w * .38), (float) (y - h * .1), fill(light, .5));
+            }
+            cv.restore();
+        }
+        // deux bougies au pied des tombes
+        candle(tx[0] + th[0] * .45, ty[0] + 2, th[0] * .32, lit);
+        candle(tx[3] - th[3] * .48, ty[3] + 3, th[3] * .26, lit);
+    }
+
+    /** Bougie : cire crème, mèche, flamme en goutte et halo (plus fort le soir et la nuit). */
+    private void candle(double x, double y, double h, boolean lit) {
+        double w = h * .38;
+        fill.setShader(new RadialGradient((float) x, (float) (y - h * 1.2), (float) (h * (lit ? 3 : 1.6)),
+                lit ? 0x80FFC45A : 0x40FFD27A, 0x00FFC45A, Shader.TileMode.CLAMP));
+        circle(x, y - h * 1.2, h * (lit ? 3 : 1.6), fill);
+        cv.drawRect((float) (x - w / 2), (float) (y - h), (float) (x + w / 2), (float) y, fill(c("#efe6cf")));
+        cv.drawRect((float) (x + w * .1), (float) (y - h), (float) (x + w / 2), (float) y, fill(c("#cfc3a6")));
+        ellipse(x, y - h, w / 2, w * .18, fill(c("#f7f0de")));
+        stroke.setColor(c("#3a2a1a"));
+        stroke.setStrokeWidth((float) Math.max(1, w * .12));
+        cv.drawLine((float) x, (float) (y - h), (float) x, (float) (y - h - w * .3), stroke);
+        Path f = new Path(); // flamme
+        m(f, x, y - h - w * 1.6);
+        q(f, x + w * .45, y - h - w * .7, x, y - h - w * .25);
+        q(f, x - w * .45, y - h - w * .7, x, y - h - w * 1.6);
+        f.close();
+        cv.drawPath(f, fill(c("#ffb43a")));
+        ellipse(x, y - h - w * .55, w * .14, w * .26, fill(c("#fff4c2")));
+    }
+
+    /** Hutte de sorcière : murs de planches de travers, toit pointu tordu, cheminée qui fume, fenêtre allumée. */
+    private void hut(Layer L, double ph, int col, Palette p0, boolean lit, double haze) {
+        double x = 1470, y = yAt(L, x, ph) + 6, s = 78;
+        int wood = mix(mix(c("#6b4a33"), p0.tree, .35), col, haze), woodD = mix(wood, BLACK, .3);
+        int roof = mix(mix(c("#4b3a52"), p0.tree, .3), col, haze), roofL = mix(roof, p0.halo, .2);
+        ellipse(x + s * .05, y, s * .62, s * .07, fill(mix(col, BLACK, .3), .35));
+        // cheminée et fumée
+        cv.drawRect((float) (x + s * .14), (float) (y - s * 1.22), (float) (x + s * .27), (float) (y - s * .8), fill(woodD));
+        int smoke = mix(p0.sky[1], WHITE, .3);
+        double[][] puffs = {{.22, 1.34, .08}, {.27, 1.46, .1}, {.35, 1.6, .12}, {.46, 1.74, .13}};
+        for (double[] pf : puffs) circle(x + s * pf[0], y - s * pf[1], s * pf[2], fill(smoke, .45));
+        // murs penchés
+        Path w = new Path();
+        m(w, x - s * .4, y); l(w, x - s * .36, y - s * .55); l(w, x + s * .38, y - s * .6); l(w, x + s * .42, y); w.close();
+        cv.drawPath(w, fill(wood));
+        stroke.setColor(woodD);
+        stroke.setStrokeWidth((float) (s * .02));
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        for (int k = 1; k < 4; k++) {
+            double yy = y - s * .14 * k;
+            cv.drawLine((float) (x - s * .39 + k * .01 * s), (float) yy, (float) (x + s * .41 - k * .01 * s), (float) (yy - s * .02 * k), stroke);
+        }
+        // porte arrondie et fenêtre
+        Path d = new Path();
+        m(d, x - s * .22, y); l(d, x - s * .22, y - s * .3);
+        d.arcTo(new RectF((float) (x - s * .22), (float) (y - s * .4), (float) (x - s * .04), (float) (y - s * .22)), 180, 180);
+        l(d, x - s * .04, y); d.close();
+        cv.drawPath(d, fill(mix(woodD, BLACK, .3)));
+        if (lit) {
+            fill.setShader(new RadialGradient((float) (x + s * .2), (float) (y - s * .32), (float) (s * .45), 0x66FFC24A, 0x00FFC24A, Shader.TileMode.CLAMP));
+            circle(x + s * .2, y - s * .32, s * .45, fill);
+        }
+        cv.drawRect((float) (x + s * .1), (float) (y - s * .42), (float) (x + s * .3), (float) (y - s * .24), fill(lit ? c("#ffcf5a") : mix(woodD, BLACK, .35)));
+        stroke.setColor(woodD);
+        cv.drawLine((float) (x + s * .2), (float) (y - s * .42), (float) (x + s * .2), (float) (y - s * .24), stroke);
+        cv.drawLine((float) (x + s * .1), (float) (y - s * .33), (float) (x + s * .3), (float) (y - s * .33), stroke);
+        // toit pointu, la pointe tordue
+        Path r = new Path();
+        m(r, x - s * .58, y - s * .5);
+        q(r, x - s * .1, y - s * .78, x - s * .02, y - s * 1.25);
+        q(r, x + s * .05, y - s * 1.5, x + s * .3, y - s * 1.52);
+        q(r, x + s * .12, y - s * 1.36, x + s * .14, y - s * 1.1);
+        q(r, x + s * .26, y - s * .78, x + s * .6, y - s * .56);
+        q(r, x, y - s * .64, x - s * .58, y - s * .5);
+        r.close();
+        cv.drawPath(r, fill(roof));
+        Path rl = new Path(); // côté éclairé
+        m(rl, x - s * .58, y - s * .5);
+        q(rl, x - s * .1, y - s * .78, x - s * .02, y - s * 1.25);
+        q(rl, x - s * .02, y - s * .8, x - s * .1, y - s * .58);
+        rl.close();
+        cv.drawPath(rl, fill(roofL));
+        // bord de chaume
+        stroke.setColor(mix(roof, BLACK, .25));
+        stroke.setStrokeWidth((float) (s * .025));
+        for (int k = 0; k < 9; k++) {
+            double xx = x - s * .52 + k * s * .13;
+            cv.drawLine((float) xx, (float) (y - s * .55), (float) (xx - s * .03), (float) (y - s * .47), stroke);
+        }
     }
 
     private static int indexOf(Palette p) {

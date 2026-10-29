@@ -237,7 +237,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         xlp.topMargin = Math.round(.48f * H - 2.2f * vw);
         root.addView(toast, xlp);
 
-        prefs = new PrefsView(this, this, vw, store.animations, store.lifeFx);
+        prefs = new PrefsView(this, this, vw, store.animations, store.lifeFx, store.halloween);
         prefs.setVisibility(View.GONE);
         prefs.setElevation(10 * vw); // au-dessus du dock, qui a sa propre élévation
         root.addView(prefs, match());
@@ -1183,6 +1183,14 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         store.saveLifeFx();
         prefs.setLifeFx(on);
         scene.setLifeFx(on);
+    }
+
+    @Override
+    public void setHalloween(boolean on) {
+        store.halloween = on;
+        store.saveHalloween();
+        prefs.setHalloween(on);
+        if (theme == Theme.THINKING) scene.showLandscape(true); // le décor change en fondu
     }
 
     @Override

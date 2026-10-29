@@ -70,6 +70,14 @@ class LifeView extends View {
     private final List<Butterfly> butterflies = new ArrayList<>();
     private final List<Star> stars = new ArrayList<>();
 
+    /** Fantôme d'Halloween : flotte en ondulant, dans la même bande que les papillons. */
+    private static final class Ghost {
+        float x, y, baseY, dir, speed, ph, size, alpha;
+    }
+
+    private final List<Ghost> ghosts = new ArrayList<>();
+    private final android.graphics.Path ghostPath = new android.graphics.Path();
+
     LifeView(Context ctx) {
         super(ctx);
     }
@@ -126,7 +134,11 @@ class LifeView extends View {
         return WeatherView.CLEAR.equals(weather) || WeatherView.PARTLY.equals(weather);
     }
 
-    private boolean leavesWanted() { return "automne".equals(season) && moment != 3 && !wet() && !orange.isEmpty(); }
+    private boolean leavesWanted() { return autumn() && moment != 3 && !wet() && !orange.isEmpty(); }
+
+    private boolean autumn() { return "automne".equals(season) || "halloween".equals(season); }
+
+    private boolean ghostsWanted() { return "halloween".equals(season) && !wet(); }
 
     private boolean butterfliesWanted() { return "printemps".equals(season) && moment != 3 && !wet(); }
 
@@ -143,6 +155,7 @@ class LifeView extends View {
         flies.clear();
         butterflies.clear();
         stars.clear();
+        ghosts.clear();
         invalidate();
     }
 
@@ -152,7 +165,7 @@ class LifeView extends View {
             return;
         }
         if (looping || !active()) return;
-        if (!leavesWanted() && !butterfliesWanted() && !fliesWanted() && !starsWanted()) return;
+        if (!leavesWanted() && !butterfliesWanted() && !fliesWanted() && !starsWanted() && !ghostsWanted()) return;
         looping = true;
         last = SystemClock.uptimeMillis();
         postDelayed(frame, FRAME_MS);
@@ -167,7 +180,7 @@ class LifeView extends View {
             last = t;
             step(dt, active());
             invalidate();
-            if (active() || !leaves.isEmpty() || !flies.isEmpty() || !butterflies.isEmpty() || !stars.isEmpty())
+            if (active() || !leaves.isEmpty() || !flies.isEmpty() || !butterflies.isEmpty() || !stars.isEmpty() || !ghosts.isEmpty())
                 postDelayed(this, FRAME_MS);
             else looping = false; // fin de l'épisode : plus rien ne bouge
         }
@@ -214,6 +227,22 @@ class LifeView extends View {
                 }
             }
         } else butterflies.clear();
+
+        // fantômes d'Halloween
+        if (ghostsWanted()) {
+            while (active && ghosts.size() < 3) ghosts.add(newGhost(ghosts.isEmpty()));
+            for (Iterator<Ghost> it = ghosts.iterator(); it.hasNext(); ) {
+                Ghost g = it.next();
+                g.ph += dt;
+                g.x += g.dir * g.speed * dt * (1 + .35f * (float) Math.sin(g.ph * .9f)); // avance par vagues
+                g.y = g.baseY + (float) Math.sin(g.ph * 1.6f) * 12 + (float) Math.sin(g.ph * .5f) * 18;
+                g.alpha = Math.min(1, g.alpha + dt * .8f); // apparaît en fondu
+                if (g.x < -80 || g.x > Landscape.W + 80) {
+                    if (active) { Ghost n = newGhost(false); g.x = n.x; g.baseY = n.baseY; g.dir = n.dir; g.speed = n.speed; g.size = n.size; g.alpha = 0; }
+                    else it.remove();
+                }
+            }
+        } else ghosts.clear();
 
         // lucioles dans les bosquets
         if (fliesWanted()) {
@@ -327,6 +356,17 @@ class LifeView extends View {
         return .12f + .88f * Math.abs((float) Math.cos(b.flap / 2));
     }
 
+    private Ghost newGhost(boolean anywhere) {
+        Ghost g = new Ghost();
+        g.dir = rnd.nextFloat() < .5f ? 1 : -1;
+        g.x = anywhere ? 200 + rnd.nextFloat() * 1520 : (g.dir > 0 ? -60 : Landscape.W + 60);
+        g.baseY = 640 + rnd.nextFloat() * 90;
+        g.speed = 35 + rnd.nextFloat() * 30;
+        g.ph = rnd.nextFloat() * 6.28f;
+        g.size = 13 + rnd.nextFloat() * 6;
+        return g;
+    }
+
     private Fly newFly() {
         Fly f = new Fly();
         f.home = groves.get(rnd.nextInt(groves.size()));
@@ -374,7 +414,7 @@ class LifeView extends View {
 
     @Override
     protected void onDraw(Canvas c) {
-        if (leaves.isEmpty() && flies.isEmpty() && butterflies.isEmpty() && stars.isEmpty()) return;
+        if (leaves.isEmpty() && flies.isEmpty() && butterflies.isEmpty() && stars.isEmpty() && ghosts.isEmpty()) return;
         float s = Math.max(getWidth() / (float) Landscape.W, getHeight() / (float) Landscape.H);
         c.save();
         c.translate((getWidth() - Landscape.W * s) / 2, (getHeight() - Landscape.H * s) / 2);
@@ -417,6 +457,8 @@ class LifeView extends View {
             c.drawOval(oval, paint);
             c.restore();
         }
+
+        for (Ghost gh : ghosts) drawGhost(c, gh);
 
         Bitmap g = flies.isEmpty() ? null : glowSprite();
         for (Fly f : flies) {
@@ -469,6 +511,49 @@ class LifeView extends View {
         paint.setStrokeWidth(.09f);
         c.drawLine(-1, 0, .8f, 0, paint);     // nervure
         paint.setStyle(Paint.Style.FILL);
+        c.restore();
+    }
+
+    /** Drap blanc arrondi en haut, bas ondulé qui flotte, yeux et bouche ronde ; légère lueur la nuit. */
+    private void drawGhost(Canvas c, Ghost g) {
+        float r = g.size, w = g.ph * 5;
+        int a = Math.round(255 * g.alpha);
+        c.save();
+        c.translate(g.x, g.y);
+        c.rotate(g.dir * (6 + (float) Math.sin(g.ph * 1.6f) * 4)); // penché vers l'avant
+        if (g.dir < 0) c.scale(-1, 1);
+        if (moment >= 2) { // lueur pâle le soir et la nuit
+            paint.setShader(new RadialGradient(0, 0, r * 2.6f, 0x40DDE8FF, 0x00DDE8FF, Shader.TileMode.CLAMP));
+            paint.setAlpha(a);
+            c.drawCircle(0, 0, r * 2.6f, paint);
+            paint.setShader(null);
+        }
+        android.graphics.Path p = ghostPath;
+        p.rewind();
+        p.moveTo(-r, 0);
+        p.arcTo(new RectF(-r, -r, r, r), 180, 180);
+        p.lineTo(r, r * 1.1f);
+        // bas en quatre festons qui ondulent, la traîne vers l'arrière
+        int n = 4;
+        for (int k = 0; k < n; k++) {
+            float x0 = r - 2 * r * k / n, x1 = r - 2 * r * (k + 1) / n;
+            float wave = (float) Math.sin(w + k * 1.4f) * r * .18f;
+            float yEnd = r * (1.1f + .12f * (k + 1)) + wave;
+            p.quadTo((x0 + x1) / 2 - r * .1f, r * 1.55f + k * r * .1f + wave, x1, yEnd);
+        }
+        p.quadTo(-r * 1.15f, r * .6f, -r, 0);
+        p.close();
+        paint.setColor(moment == 3 ? 0xFFE6ECFA : 0xFFFAFAFA);
+        paint.setAlpha(Math.round(a * .9f));
+        c.drawPath(p, paint);
+        paint.setColor(0xFF2A2633);
+        paint.setAlpha(a);
+        oval.set(r * .05f, -r * .35f, r * .32f, r * .05f);
+        c.drawOval(oval, paint);
+        oval.set(r * .45f, -r * .35f, r * .72f, r * .05f);
+        c.drawOval(oval, paint);
+        oval.set(r * .28f, r * .25f, r * .5f, r * .55f);
+        c.drawOval(oval, paint);
         c.restore();
     }
 
