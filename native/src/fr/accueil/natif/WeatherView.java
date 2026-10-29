@@ -68,10 +68,12 @@ class WeatherView extends FrameLayout {
         precip.layout(0, 0, r - l, Math.round((b - t) * .7f));
     }
 
-    private Bitmap cloudSrc, skyMask;
+    private Bitmap cloudSrc, cloudDense, skyMask;
 
-    void setCloudBitmap(Bitmap b) {
-        cloudSrc = b;
+    /** Nuages ordinaires, et couverture dense d'orage. */
+    void setCloudBitmaps(Bitmap normal, Bitmap dense) {
+        cloudSrc = normal;
+        cloudDense = dense;
         composeClouds();
     }
 
@@ -82,11 +84,12 @@ class WeatherView extends FrameLayout {
     }
 
     private void composeClouds() {
-        if (cloudSrc == null) return;
-        if (skyMask == null) { clouds.setImageBitmap(cloudSrc); return; }
-        Bitmap out = Bitmap.createBitmap(cloudSrc.getWidth(), cloudSrc.getHeight(), Bitmap.Config.ARGB_8888);
+        Bitmap src = STORM.equals(kind) && cloudDense != null ? cloudDense : cloudSrc;
+        if (src == null) return;
+        if (skyMask == null) { clouds.setImageBitmap(src); return; }
+        Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
-        c.drawBitmap(cloudSrc, 0, 0, null);
+        c.drawBitmap(src, 0, 0, null);
         Paint in = new Paint(Paint.FILTER_BITMAP_FLAG);
         in.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
         c.drawBitmap(skyMask, null, new android.graphics.Rect(0, 0, out.getWidth(), out.getHeight()), in);
@@ -114,7 +117,9 @@ class WeatherView extends FrameLayout {
         String nk = (String) k[0];
         double nl = (Double) k[1];
         boolean same = nk.equals(kind) && nl == level;
+        boolean stormChange = STORM.equals(nk) != STORM.equals(kind);
         kind = nk;
+        if (stormChange) composeClouds(); // couverture dense pour l'orage
         level = nl;
         fadeTo(veil, veilAlpha(), animate);
         fadeTo(clouds, cloudAlpha(), animate);

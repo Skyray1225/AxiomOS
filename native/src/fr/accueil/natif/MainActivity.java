@@ -346,6 +346,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         if (intent.hasExtra("meteo") && scene.weather() != null) {
             scene.forcedCode = intent.getIntExtra("meteo", -1);
             scene.refreshWeather();
+            scene.burst(60000); // essais : la pluie ou la neige s'anime tout de suite
         }
         if (intent.getBooleanExtra("veille", false)) setSaverPreview(true);
         if (intent.getBooleanExtra("intro", false)) playIntro(intent.getIntExtra("introDelay", 0));

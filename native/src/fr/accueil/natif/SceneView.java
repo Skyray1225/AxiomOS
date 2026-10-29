@@ -142,8 +142,8 @@ class SceneView extends FrameLayout {
                 wx.setAnimations(store.animations);
                 addView(wx, new LayoutParams(full));
                 worker.execute(() -> {
-                    Bitmap c = Landscape.weatherClouds(w, h);
-                    ui.post(() -> wx.setCloudBitmap(c));
+                    Bitmap c = Landscape.weatherClouds(w, h), d = Landscape.weatherClouds(w, h, true);
+                    ui.post(() -> wx.setCloudBitmaps(c, d));
                 });
                 break;
         }

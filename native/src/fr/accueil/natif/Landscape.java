@@ -32,7 +32,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 21; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 26; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
     static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel"};
 
@@ -238,7 +238,7 @@ final class Landscape {
         int[] px = new int[W * H];
         base.getPixels(px, 0, W, 0, 0, W, H);
         int[] sky = skyMask(ctx, px); // opacité du ciel, 0 … 255
-        Bitmap emission = special && idx >= 2 ? emission(px) : null; // sources de lumière de l'illustration
+        Bitmap emission = special && idx >= 2 ? emission(px, prior(ctx)) : null; // sources de lumière de l'illustration
         double sx = 330, sy = new double[]{430, 250, 450, 250}[idx];
         Paint img = new Paint(Paint.FILTER_BITMAP_FLAG);
         if (idx == 1) { // jour : l'illustration telle quelle, le soleil derrière les montagnes
@@ -352,15 +352,131 @@ final class Landscape {
      * la neige ou les boules dorées n'y entrent pas (pas assez lumineux, ou pas assez chauds).
      * Renvoie ces pixels avec leur couleur d'origine et une opacité selon leur intensité.
      */
-    private static Bitmap emission(int[] px) {
+    private static Bitmap emission(int[] px, int[] prior) {
+        // source légèrement lissée (3 × 3) : le grain et les hachures de texture ne s'allument pas par points
+        int[] sm = new int[px.length];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                int r = 0, g = 0, b = 0, n = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || xx >= W || yy < 0 || yy >= H) continue;
+                        int p = px[yy * W + xx];
+                        r += p >> 16 & 255; g += p >> 8 & 255; b += p & 255; n++;
+                    }
+                sm[y * W + x] = (r / n) << 16 | (g / n) << 8 | b / n;
+            }
+        int[] v = new int[px.length];
+        for (int i = 0; i < px.length; i++) {
+            int p = sm[i];
+            v[i] = Math.max(p >> 16 & 255, Math.max(p >> 8 & 255, p & 255));
+        }
+        int[] sum = new int[(W + 1) * (H + 1)];
+        for (int y = 0; y < H; y++)
+            for (int x = 0, row = 0; x < W; x++) {
+                row += v[y * W + x];
+                sum[(y + 1) * (W + 1) + x + 1] = sum[y * (W + 1) + x + 1] + row;
+            }
+        float[] warmA = new float[px.length], spotA = new float[px.length];
+        int R = 8;
+        for (int i = 0; i < px.length; i++) {
+            int p = sm[i], r = p >> 16 & 255, g = p >> 8 & 255, b = p & 255, x = i % W, y = i / W;
+            // lumière chaude et très vive (flammes, visages allumés : luminosité 220 à 245 sur les
+            // illustrations ; les citrouilles éteintes ne dépassent pas 200), hors de la bande claire de l'horizon
+            int o = px[i], or = o >> 16 & 255, og = o >> 8 & 255, ob = o & 255;
+            double lum = .3 * or + .59 * og + .11 * ob, warm = or - ob;
+            if (y >= prior[x] + 30 || y < prior[x] - 60) warmA[i] = (float) (smooth(203, 216, lum) * smooth(20, 70, warm) * smooth(-20, 20, og - ob - 25));
+            // petite source plus vive que ce qui l'entoure (ampoules, y compris leur cœur presque blanc)
+            int x0 = Math.max(0, x - R), x1 = Math.min(W, x + R + 1), y0 = Math.max(0, y - R), y1 = Math.min(H, y + R + 1);
+            double mean = (sum[y1 * (W + 1) + x1] - sum[y0 * (W + 1) + x1] - sum[y1 * (W + 1) + x0] + sum[y0 * (W + 1) + x0])
+                    / (double) ((x1 - x0) * (y1 - y0));
+            int mn = Math.min(r, Math.min(g, b));
+            double sat = v[i] == 0 ? 0 : (v[i] - mn) / (double) v[i];
+            spotA[i] = (float) (smooth(30, 70, v[i] - mean) * smooth(150, 215, v[i]) * smooth(.25, .5, sat));
+        }
+        close(spotA, 3); // le cœur presque blanc des ampoules (peu saturé) est rebouché
+        // ne garder que des taches : petites et rondes pour les ampoules (pas un bord de feuillage ni
+        // une citrouille entière), d'un seul tenant et assez grandes pour les visages allumés
+        keepBlobs(spotA, 20, 1100, 2.2);
+        keepBlobs(warmA, 60, 40000, 6);
         int[] e = new int[px.length];
         for (int i = 0; i < px.length; i++) {
-            int p = px[i], r = p >> 16 & 255, g = p >> 8 & 255, b = p & 255;
-            double lum = .3 * r + .59 * g + .11 * b, warm = r - b;
-            double a = smooth(185, 228, lum) * smooth(18, 70, warm) * smooth(-20, 20, g - b - 25);
-            if (a > .02) e[i] = (int) Math.round(a * 255) << 24 | (p & 0x00FFFFFF);
+            double a = Math.max(warmA[i], spotA[i]);
+            if (a > .02) e[i] = (int) Math.round(a * 255) << 24 | (px[i] & 0x00FFFFFF);
         }
-        return Bitmap.createBitmap(e, W, H, Bitmap.Config.ARGB_8888);
+        // trous éventuels au cœur des taches : bouchés par un léger élargissement
+        int[] out = e.clone();
+        for (int y = 1; y < H - 1; y++)
+            for (int x = 1; x < W - 1; x++) {
+                int i = y * W + x, best = e[i] >>> 24;
+                for (int k = -1; k <= 1; k += 2) {
+                    best = Math.max(best, Math.min(e[i + k] >>> 24, e[i - k] >>> 24));
+                    best = Math.max(best, Math.min(e[i + k * W] >>> 24, e[i - k * W] >>> 24));
+                }
+                if (best > (e[i] >>> 24)) out[i] = best << 24 | (px[i] & 0x00FFFFFF);
+            }
+        return Bitmap.createBitmap(out, W, H, Bitmap.Config.ARGB_8888);
+    }
+
+    /** Fermeture (maximum puis minimum sur un carré de côté 2r + 1) : bouche les petits trous. */
+    private static void close(float[] a, int r) {
+        float[] t = new float[a.length];
+        for (int pass = 0; pass < 2; pass++) {
+            boolean max = pass == 0;
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++) {
+                    float m = a[y * W + x];
+                    for (int d = -r; d <= r; d++) {
+                        int xx = Math.max(0, Math.min(W - 1, x + d));
+                        m = max ? Math.max(m, a[y * W + xx]) : Math.min(m, a[y * W + xx]);
+                    }
+                    t[y * W + x] = m;
+                }
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++) {
+                    float m = t[y * W + x];
+                    for (int d = -r; d <= r; d++) {
+                        int yy = Math.max(0, Math.min(H - 1, y + d));
+                        m = max ? Math.max(m, t[yy * W + x]) : Math.min(m, t[yy * W + x]);
+                    }
+                    a[y * W + x] = m;
+                }
+        }
+    }
+
+    /** Efface les taches (a > 0,3, d'un seul tenant) trop petites, trop grandes ou trop allongées. */
+    private static void keepBlobs(float[] a, int minArea, int maxArea, double maxAspect) {
+        int[] label = new int[a.length], q = new int[a.length];
+        int next = 1;
+        for (int s0 = 0; s0 < a.length; s0++) {
+            if (a[s0] <= .3f || label[s0] != 0) continue;
+            int head = 0, tail = 0, minX = W, maxX = 0, minY = H, maxY = 0;
+            q[tail++] = s0;
+            label[s0] = next;
+            while (head < tail) {
+                int i = q[head++], x = i % W, y = i / W;
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                for (int k = 0; k < 4; k++) {
+                    int x2 = x + (k == 0 ? 1 : k == 1 ? -1 : 0), y2 = y + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                    if (x2 < 0 || x2 >= W || y2 < 0 || y2 >= H) continue;
+                    int j = y2 * W + x2;
+                    if (label[j] != 0 || a[j] <= .3f) continue;
+                    label[j] = next;
+                    q[tail++] = j;
+                }
+            }
+            int bw = maxX - minX + 1, bh = maxY - minY + 1;
+            double aspect = Math.max(bw, bh) / (double) Math.min(bw, bh);
+            boolean keep = tail >= minArea && tail <= maxArea && aspect <= maxAspect;
+            // les pixels faibles autour d'une tache suivent son sort (halo de la source)
+            for (int k = 0; k < tail; k++) if (!keep) a[q[k]] = 0;
+            if (!keep) {
+                for (int y = Math.max(0, minY - 3); y <= Math.min(H - 1, maxY + 3); y++)
+                    for (int x = Math.max(0, minX - 3); x <= Math.min(W - 1, maxX + 3); x++) if (label[y * W + x] == 0) a[y * W + x] = 0;
+            }
+            next++;
+        }
     }
 
     private static double smooth(double a, double b, double v) {
@@ -478,6 +594,11 @@ final class Landscape {
      * selon le moment et posés derrière les montagnes et les arbres (masque du ciel).
      */
     static Bitmap weatherClouds(int width, int height) {
+        return weatherClouds(width, height, false);
+    }
+
+    /** dense : couverture d'orage, nuages plus nombreux, plus gros, plus sombres dessous. */
+    static Bitmap weatherClouds(int width, int height, boolean dense) {
         Bitmap out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(out);
         float s = Math.max(width / (float) W, height / (float) H);
@@ -488,6 +609,9 @@ final class Landscape {
         // x, base, taille (perspective : petits et étirés près de l'horizon)
         double[][] clouds = {{260, 210, 1.15}, {760, 150, 1.0}, {1260, 230, 1.2}, {1700, 140, .95},
                 {520, 360, .7}, {1080, 390, .62}, {1520, 380, .66}, {180, 450, .45}, {880, 470, .42}, {1820, 470, .4}};
+        if (dense) clouds = new double[][]{{60, 120, 1.4}, {460, 90, 1.5}, {900, 130, 1.45}, {1340, 100, 1.5}, {1780, 120, 1.4},
+                {260, 240, 1.2}, {700, 260, 1.25}, {1150, 250, 1.3}, {1600, 260, 1.2}, {40, 340, .9}, {480, 380, .85},
+                {920, 360, .9}, {1380, 390, .85}, {1860, 360, .9}, {250, 460, .55}, {720, 470, .5}, {1200, 480, .55}, {1650, 470, .5}};
         for (double[] cl : clouds) {
             double sc = cl[2], w = 380 * sc * (.85 + r.nextDouble() * .4), hgt = w * (.32 - (1 - sc) * .12);
             int n = 14 + r.nextInt(8);
@@ -501,7 +625,7 @@ final class Landscape {
             float blur = (float) (hgt * .22 + 4);
             // ombre du dessous, gris-bleu, décalée vers le bas
             p.setMaskFilter(new android.graphics.BlurMaskFilter(blur * 1.4f, android.graphics.BlurMaskFilter.Blur.NORMAL));
-            p.setColor(alpha(c("#aebbcc"), .42 * (.6 + sc * .4)));
+            p.setColor(alpha(c(dense ? "#7d8796" : "#aebbcc"), (dense ? .7 : .42) * (.6 + Math.min(1, sc) * .4)));
             for (double[] pf : puffs) cv.drawCircle((float) pf[0], (float) (pf[1] + pf[2] * .32), (float) (pf[2] * .95), p);
             // corps blanc, éclairé par le haut
             p.setMaskFilter(new android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL));
