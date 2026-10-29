@@ -1,57 +1,86 @@
 package fr.accueil.natif;
 
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewOutlineProvider;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.PathInterpolator;
 
 /**
  * Une tuile du dock : la bannière de l'appli, le contour blanc (fondu) et la lueur (un passage).
- * Le zoom passe par les propriétés de la vue : déplacé par le compositeur, sans redessiner l'image.
+ * En mode édition : tuile sélectionnée qui se dandine, autres tuiles atténuées, pastilles « épinglée »
+ * et « masquée ». Zoom, déplacement et rotation passent par les propriétés de la vue :
+ * le compositeur les applique sans redessiner l'image.
  */
 class TileView extends View {
 
     private static final float SKEW = (float) Math.tan(Math.toRadians(-18));
+    private static final ColorMatrixColorFilter GREY, DIM;
+
+    static {
+        ColorMatrix g = new ColorMatrix();
+        g.setSaturation(0);
+        GREY = new ColorMatrixColorFilter(g);
+        ColorMatrix d = new ColorMatrix();
+        d.setSaturation(.6f);
+        ColorMatrix b = new ColorMatrix();
+        b.setScale(.9f, .9f, .9f, 1);
+        d.postConcat(b);
+        DIM = new ColorMatrixColorFilter(d);
+    }
 
     private final Bitmap banner;
-    private final float radius;
+    private final float radius, vw;
     private final Paint bmpPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
     private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shinePaint = new Paint();
+    private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF bounds = new RectF();
+    private final Drawable pinIcon, eyeIcon;
 
     private float ring = 0f;   // opacité du contour, 0..1
     private float shine = -1f; // avancée de la lueur, 0..1 ; -1 = cachée
     private ValueAnimator ringAnim, shineAnim;
+    private ObjectAnimator wiggle;
+    private boolean selected, editing, pinned, hiddenApp;
 
-    TileView(Context ctx, Bitmap banner, float radius, float ringWidth, float elevation) {
+    TileView(Context ctx, Bitmap banner, float vw) {
         super(ctx);
         this.banner = banner;
-        this.radius = radius;
+        this.vw = vw;
+        this.radius = 1.4f * vw;
         ringPaint.setStyle(Paint.Style.STROKE);
-        ringPaint.setStrokeWidth(ringWidth * 2); // le trait est centré sur le bord : la moitié intérieure reste visible
+        ringPaint.setStrokeWidth(.36f * vw); // trait centré sur le bord : la moitié intérieure (.18vw) reste visible
         ringPaint.setColor(0xFFFFFFFF);
+        pinIcon = ctx.getDrawable(R.drawable.ic_pin);
+        eyeIcon = ctx.getDrawable(R.drawable.ic_eye_off);
         setOutlineProvider(new ViewOutlineProvider() {
             @Override
             public void getOutline(View v, Outline o) {
-                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), TileView.this.radius);
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
             }
         });
         setClipToOutline(true);
-        setElevation(elevation);
+        setElevation(.5f * vw);
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int ow, int oh) {
         bounds.set(0, 0, w, h);
+        setPivotX(w / 2f);
+        setPivotY(h / 2f);
         float sw = .4f * w;
         shinePaint.setShader(new LinearGradient(-sw / 2, 0, sw / 2, 0,
                 new int[]{0x00FFFFFF, 0x8CFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP));
@@ -59,6 +88,7 @@ class TileView extends View {
 
     @Override
     protected void onDraw(Canvas c) {
+        bmpPaint.setColorFilter(hiddenApp ? GREY : editing && !selected ? DIM : null);
         if (banner != null) c.drawBitmap(banner, null, bounds, bmpPaint);
         else c.drawColor(0xFF2A2D33);
         if (shine >= 0) {
@@ -73,23 +103,70 @@ class TileView extends View {
             ringPaint.setAlpha(Math.round(255 * ring));
             c.drawRoundRect(bounds, radius, radius, ringPaint);
         }
+        float s = 1.8f * vw, m = .5f * vw;
+        if (editing && pinned) badge(c, m, m, s, 0xFFFFCF3A, pinIcon, .35f * vw);
+        if (hiddenApp) badge(c, getWidth() - m - s, m, s, 0x8C141E19, eyeIcon, .3f * vw);
     }
 
-    void setSelected(boolean on, boolean animate) {
+    private void badge(Canvas c, float x, float y, float s, int color, Drawable icon, float pad) {
+        badgePaint.setColor(color);
+        c.drawCircle(x + s / 2, y + s / 2, s / 2, badgePaint);
+        icon.setBounds(Math.round(x + pad), Math.round(y + pad), Math.round(x + s - pad), Math.round(y + s - pad));
+        icon.draw(c);
+    }
+
+    /** Appli épinglée / masquée (pastilles et grisé). */
+    void setFlags(boolean pinned, boolean hiddenApp) {
+        this.pinned = pinned;
+        this.hiddenApp = hiddenApp;
+        setAlpha(hiddenApp ? .55f : 1f);
+        invalidate();
+    }
+
+    void setEditing(boolean on) {
+        editing = on;
+        updateTransform(false);
+        invalidate();
+    }
+
+    void setSelected(boolean on, boolean animate, boolean withShine) {
+        selected = on;
         if (ringAnim != null) ringAnim.cancel();
-        float scale = on ? 1.04f : 1f;
         if (!animate) {
             ring = on ? 1 : 0;
+            invalidate();
+        } else {
+            ringAnim = ValueAnimator.ofFloat(ring, on ? 1 : 0).setDuration(180);
+            ringAnim.addUpdateListener(a -> { ring = (float) a.getAnimatedValue(); invalidate(); });
+            ringAnim.start();
+            if (on && withShine && !editing) shineOnce();
+        }
+        updateTransform(animate);
+    }
+
+    /** Zoom de la tuile sélectionnée ; en édition, elle se soulève et se dandine. */
+    private void updateTransform(boolean animate) {
+        boolean wig = editing && selected;
+        float scale = wig ? 1.08f : selected ? 1.04f : 1f, dy = wig ? -1.2f * vw : 0;
+        if (wig && wiggle == null) {
+            wiggle = ObjectAnimator.ofFloat(this, View.ROTATION, -1.2f, 1.2f).setDuration(500);
+            wiggle.setRepeatCount(ValueAnimator.INFINITE);
+            wiggle.setRepeatMode(ValueAnimator.REVERSE);
+            wiggle.setInterpolator(new AccelerateDecelerateInterpolator());
+            wiggle.start();
+        } else if (!wig && wiggle != null) {
+            wiggle.cancel();
+            wiggle = null;
+            setRotation(0);
+        }
+        animate().cancel();
+        if (animate) {
+            animate().scaleX(scale).scaleY(scale).translationY(dy).setDuration(250).setInterpolator(MainActivity.EASE);
+        } else {
             setScaleX(scale);
             setScaleY(scale);
-            invalidate();
-            return;
+            setTranslationY(dy);
         }
-        ringAnim = ValueAnimator.ofFloat(ring, on ? 1 : 0).setDuration(180);
-        ringAnim.addUpdateListener(a -> { ring = (float) a.getAnimatedValue(); invalidate(); });
-        ringAnim.start();
-        animate().scaleX(scale).scaleY(scale).setDuration(250).setInterpolator(MainActivity.EASE);
-        if (on) shineOnce();
     }
 
     private void shineOnce() {
@@ -102,5 +179,13 @@ class TileView extends View {
             invalidate();
         });
         shineAnim.start();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (wiggle != null) wiggle.cancel();
+        if (shineAnim != null) shineAnim.cancel();
+        if (ringAnim != null) ringAnim.cancel();
+        super.onDetachedFromWindow();
     }
 }
