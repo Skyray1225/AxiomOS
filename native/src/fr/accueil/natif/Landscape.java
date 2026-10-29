@@ -25,7 +25,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 13; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 16; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
 
     /* ===== Palettes du moment ===== */
