@@ -413,11 +413,14 @@ public class MainActivity extends Activity implements PrefsView.Host {
             if (k == KeyEvent.KEYCODE_DPAD_RIGHT) moveApp(1);
             else if (k == KeyEvent.KEYCODE_DPAD_LEFT) moveApp(-1);
             else if (k == KeyEvent.KEYCODE_DPAD_UP) togglePin();
-        } else if (editing) { // Bullit : ← → déplacent, ↑ épingle, ↓ masque
-            if (k == KeyEvent.KEYCODE_DPAD_RIGHT) moveApp(1);
-            else if (k == KeyEvent.KEYCODE_DPAD_LEFT) moveApp(-1);
-            else if (k == KeyEvent.KEYCODE_DPAD_DOWN) toggleHidden();
-            else togglePin();
+        } else if (editing) { // Bullit : les quatre flèches déplacent la tuile dans la grille
+            int n = shown.size(), c = theme.columns, to = -1;
+            if (k == KeyEvent.KEYCODE_DPAD_RIGHT) to = focus + 1;
+            else if (k == KeyEvent.KEYCODE_DPAD_LEFT) to = focus - 1;
+            else if (k == KeyEvent.KEYCODE_DPAD_UP) to = focus - c;
+            else if (focus + c < n) to = focus + c;
+            else if ((n - 1) / c > focus / c) to = n - 1; // rangée du dessous incomplète
+            if (to >= 0 && to < n) moveTo(focus, to);
         } else if (theme.dock != Theme.CAROUSEL && !onTop && k == KeyEvent.KEYCODE_DPAD_UP && focus >= theme.columns) {
             focusOn(focus - theme.columns); // grille ou liste : rangée du dessus
         } else if (theme.dock != Theme.CAROUSEL && !onTop && k == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -616,10 +619,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
     /** Applis du dock : favoris puis usage ; les masquées n'apparaissent qu'en mode édition. */
     private List<App> visibleApps() {
         List<App> all = store.ordered(allApps);
-        if (editing || theme != Theme.BULLIT) return all; // seul Bullit permet de masquer (et de démasquer)
-        List<App> out = new ArrayList<>();
-        for (App a : all) if (!store.hidden.contains(a.pkg)) out.add(a);
-        return out.isEmpty() ? all : out; // jamais de dock vide
+        return all; // plus de masquage d'applis, dans aucun thème
     }
 
     /** Taille du dock selon le nombre d'applis (5 au plus), et le titre aligné dessus. */
@@ -712,7 +712,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
                 lp.leftMargin = i * (tileW + gap);
             }
             DockItem t = (DockItem) v;
-            t.setFlags(store.pins.contains(a.pkg), theme == Theme.BULLIT && store.hidden.contains(a.pkg));
+            t.setFlags(theme != Theme.BULLIT && store.pins.contains(a.pkg), false); // Bullit : pas de pastille
             t.setEditing(editing);
             track.addView(v, lp);
             tiles.add(t);
@@ -889,17 +889,27 @@ public class MainActivity extends Activity implements PrefsView.Host {
         buildDock(p);
     }
 
-    private void togglePin() {
-        String p = shown.get(focus).pkg;
-        if (!store.pins.remove(p)) store.pins.add(p);
+    /**
+     * Place l'appli `from` à la position `to` (grille Bullit). L'ordre du dock = favoris puis usage :
+     * pour garder ce placement, les applis jusqu'à `to` (au moins) deviennent les favoris, dans l'ordre affiché.
+     */
+    private void moveTo(int from, int to) {
+        List<String> order = new ArrayList<>();
+        for (App a : shown) order.add(a.pkg);
+        int pinned = 0;
+        while (pinned < order.size() && store.pins.contains(order.get(pinned))) pinned++;
+        String p = order.remove(from);
+        order.add(to, p);
+        store.pins.clear();
+        store.pins.addAll(order.subList(0, Math.max(pinned, to + 1)));
         store.savePins();
         buildDock(p);
     }
 
-    private void toggleHidden() {
+    private void togglePin() {
         String p = shown.get(focus).pkg;
-        if (!store.hidden.remove(p)) store.hidden.add(p);
-        store.saveHidden();
+        if (!store.pins.remove(p)) store.pins.add(p);
+        store.savePins();
         buildDock(p);
     }
 
@@ -1066,7 +1076,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(px(1.6f), px(.7f), px(1.6f), px(.7f));
         String[][] parts = theme == Theme.MINIMAL ? new String[][]{{"↑ ↓", "Déplacer"}, {"→", "Épingler"}, {"Retour", "Terminer"}}
-                : theme == Theme.BULLIT ? new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"↓", "Masquer"}, {"OK", "Terminer"}}
+                : theme == Theme.BULLIT ? new String[][]{{"← → ↑ ↓", "Déplacer"}, {"OK", "Valider"}}
                 : new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"OK", "Terminer"}};
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) {
