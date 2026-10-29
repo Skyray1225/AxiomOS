@@ -102,7 +102,6 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private boolean editing, onTop, prefsOpen, topOnGear = true;
     private boolean okDown, okLong;
     private float forcedHour = Float.NaN; // test : --ef heure 21.5
-    private boolean outfitBroken;
     private FrameLayout root;
 
     @Override
@@ -801,22 +800,14 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     /* ===== Outils d'affichage ===== */
 
-    /** Police Outfit (variable) au poids demandé ; police système si Android ne sait pas la lire. */
+    /** Roboto, la police système d'Android, au poids demandé (choix de l'utilisateur). */
     @Override
     public Typeface font(int weight) {
         Typeface t = fonts.get(weight);
-        if (t != null) return t;
-        if (!outfitBroken) try {
-            t = new Typeface.Builder(getAssets(), "fonts/outfit.woff2")
-                    .setFontVariationSettings("'wght' " + weight).build();
-        } catch (Exception e) {
-            t = null;
-        }
         if (t == null) {
-            outfitBroken = true; // ne pas retenter pour chaque poids
             t = Build.VERSION.SDK_INT >= 28 ? Typeface.create(Typeface.SANS_SERIF, weight, false) : Typeface.SANS_SERIF;
+            fonts.put(weight, t);
         }
-        fonts.put(weight, t);
         return t;
     }
 

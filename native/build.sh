@@ -9,8 +9,8 @@ OUT=build
 JDK="${JAVA_HOME:-$HOME/Android/jdk}"
 export PATH="$JDK/bin:$PATH"
 
-rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/assets/photos/mini" "$OUT/assets/fonts"
-cp ../launcher/photos/*.jpg "$OUT/assets/photos/" && cp ../launcher/photos/mini/*.jpg "$OUT/assets/photos/mini/" && cp ../launcher/fonts/outfit.woff2 "$OUT/assets/fonts/"
+rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/assets/photos/mini"
+cp ../launcher/photos/*.jpg "$OUT/assets/photos/" && cp ../launcher/photos/mini/*.jpg "$OUT/assets/photos/mini/"
 
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
 # -0 jpg : les photos sont déjà compressées, les stocker telles quelles accélère leur lecture
