@@ -581,7 +581,7 @@ class SceneView extends FrameLayout {
         worker.execute(() -> {
             Bitmap b = loadLandscape(sz, idx, w, h);
             if (b == null) {
-                b = Landscape.render(idx, sz, w, h);
+                b = Landscape.render(getContext(), idx, sz, w, h);
                 saveLandscape(b, sz, idx, w, h);
             }
             final Bitmap fb = b;
@@ -627,7 +627,7 @@ class SceneView extends FrameLayout {
         worker.execute(() -> {
             for (int i = 0; i < 4; i++) {
                 if (cacheFile(sz, i, w, h).exists()) continue;
-                Bitmap b = Landscape.render(i, sz, w, h);
+                Bitmap b = Landscape.render(getContext(), i, sz, w, h);
                 saveLandscape(b, sz, i, w, h);
                 b.recycle();
             }
