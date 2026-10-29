@@ -37,6 +37,7 @@ class PrefsView extends FrameLayout {
     interface Host {
         void applyTheme(String id);
         void setAnimations(boolean on);
+        void setLifeFx(boolean on);
         void closePrefs();
         String minMode();
         void cycleMinMode(int dir);
@@ -53,14 +54,14 @@ class PrefsView extends FrameLayout {
     private final LinearLayout[] cards = new LinearLayout[6];
     private final TextView[] checks = new TextView[6];
     private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
-    private final LinearLayout sheet, animRow, darkRow;
+    private final LinearLayout sheet, animRow, darkRow, lifeRow;
     private final TextView darkValue;
-    private final SwitchView animSwitch;
+    private final SwitchView animSwitch, lifeSwitch;
     private int row = 0, card = 1;
     private String theme = "photo";
     private boolean light;
 
-    PrefsView(Context ctx, Host host, float vw, boolean animOn) {
+    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn) {
         super(ctx);
         this.host = host;
         this.vw = vw;
@@ -141,6 +142,13 @@ class PrefsView extends FrameLayout {
         animRow.addView(animSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
         box.addView(animRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        lifeRow = row("Effets de saison", "Feuilles, papillons, lucioles, étoiles filantes");
+        lifeSwitch = new SwitchView(ctx, vw, lifeOn);
+        lifeRow.addView(lifeSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        flp.topMargin = px(.5f);
+        box.addView(lifeRow, flp);
+
         TextView hint = text("← → choisir · OK appliquer · ↑ ↓ naviguer · Retour fermer", .95f, 400, .55f);
         hint.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -163,9 +171,10 @@ class PrefsView extends FrameLayout {
         return r;
     }
 
-    /** Rangées du bas : « apparence » (en Minimal seulement), puis animations. */
+    /** Rangées du bas : « apparence » (en Minimal seulement), animations, effets de saison (en Thinking seulement). */
     private String[] rows() {
-        return "minimal".equals(theme) ? new String[]{"themes", "dark", "anim"} : new String[]{"themes", "anim"};
+        return "minimal".equals(theme) ? new String[]{"themes", "dark", "anim"}
+                : "dessin".equals(theme) ? new String[]{"themes", "anim", "life"} : new String[]{"themes", "anim"};
     }
 
     /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
@@ -175,6 +184,7 @@ class PrefsView extends FrameLayout {
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : "dessin".equals(t.theme) ? landscape : null);
         darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
+        lifeRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
         render(false);
     }
 
@@ -213,6 +223,10 @@ class PrefsView extends FrameLayout {
         animSwitch.set(on);
     }
 
+    void setLifeFx(boolean on) {
+        lifeSwitch.set(on);
+    }
+
     /** Version claire (Minimal clair) ou sombre (tous les autres cas), comme dans la version web. */
     void setLight(boolean l) {
         light = l;
@@ -232,6 +246,7 @@ class PrefsView extends FrameLayout {
             c.setTextColor(l ? 0xFFFFFFFF : 0xFF1A1C20);
         }
         animSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
+        lifeSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         for (ThumbView t : thumbs) t.setRingColor(l ? 0xE61E2A24 : 0xFFFFFFFF);
         render(false);
     }
@@ -252,6 +267,7 @@ class PrefsView extends FrameLayout {
                 int d = keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1;
                 if (row == 0) card = Math.max(0, Math.min(5, card + d));
                 else if ("dark".equals(rows[row])) host.cycleMinMode(d);
+                else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -259,6 +275,7 @@ class PrefsView extends FrameLayout {
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (row == 0) host.applyTheme(THEMES[card]);
                 else if ("dark".equals(rows[row])) host.cycleMinMode(1);
+                else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_BACK:
@@ -286,6 +303,7 @@ class PrefsView extends FrameLayout {
         for (String[] m : MIN_MODES) if (m[0].equals(mode)) darkValue.setText(m[1]);
         darkRow.setBackground(rowBg("dark".equals(rows[row])));
         animRow.setBackground(rowBg("anim".equals(rows[row])));
+        lifeRow.setBackground(rowBg("life".equals(rows[row])));
     }
 
     private GradientDrawable rowBg(boolean sel) {

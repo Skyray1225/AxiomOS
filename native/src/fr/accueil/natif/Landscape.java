@@ -25,7 +25,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 3; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 5; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
 
     /* ===== Palettes du moment ===== */
@@ -250,6 +250,24 @@ final class Landscape {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Rng rng;
+    /** Arbre dessiné, pour les effets de saison (feuilles qui tombent, lucioles). */
+    static final class Tree {
+        final float x, y, h;   // pied de l'arbre et hauteur, en pixels de l'image 1920 × 1080
+        final int layer;       // tranche de paysage (2 au fond … 6 devant)
+        final boolean autumn;  // feuillage d'automne (orange)
+        final int color;
+
+        Tree(double x, double y, double h, int layer, boolean autumn, int color) {
+            this.x = (float) x;
+            this.y = (float) y;
+            this.h = (float) h;
+            this.layer = layer;
+            this.autumn = autumn;
+            this.color = color;
+        }
+    }
+
+    final List<Tree> trees = new ArrayList<>();
 
     private Landscape(Canvas cv, long seed) {
         this.cv = cv;
@@ -293,6 +311,18 @@ final class Landscape {
         new Landscape(c, 1234 + idx * 977L).draw(PALETTES[idx], TIME_W[idx], season(seasonId));
         grain(c);
         return out;
+    }
+
+    /** Position des arbres du paysage, sans le dessiner vraiment (même tirage, sur une image minuscule). */
+    static List<Tree> trees(int idx, String seasonId) {
+        paths();
+        Bitmap tiny = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(tiny);
+        c.scale(2f / W, 2f / W);
+        Landscape l = new Landscape(c, 1234 + idx * 977L);
+        l.draw(PALETTES[idx], TIME_W[idx], season(seasonId));
+        tiny.recycle();
+        return l.trees;
     }
 
     private void draw(Palette p0, double w, Season S) {
@@ -456,6 +486,9 @@ final class Landscape {
                 cv.restoreToCount(lay);
             }
 
+            // massifs de fleurs dans les prés visibles au-dessus du dock (tirage à part)
+            if (S.flowerCount > 0 && !night && (i == 3 || i == 4)) meadow(L, ph, i, col, S, p0.tree, lw);
+
             // arbres, regroupés en bosquets
             if (TREES[i] > 0) {
                 int baseDark = i >= 5 ? tree : mix(col, BLACK, .22 + t * .1);
@@ -474,12 +507,14 @@ final class Landscape {
                     int dark = mix(baseDark, toward, r() * .12);
                     int light = mix(dark, p0.halo, .3), mid = mix(dark, p0.halo, .14);
                     double kind = r(), haze = .45 * (1 - t);
+                    int before = trees.size();
                     if (kind < S.mix0) pine(x, y, h, dark, light, snowCol);
                     else if (kind < S.mix1) {
                         if (S.bare != 0) bareTree(x, y, h, mix(mix(S.bare, p0.tree, lw), col, haze), snowCol);
                         else if (S.canopy != null) { // feuillage d'automne
                             int cc = mix(mix(S.canopy[(int) Math.floor(r() * S.canopy.length)], p0.tree, lw), col, haze);
                             roundTree(x, y, h, mix(cc, BLACK, .28), mix(cc, p0.halo, .3), cc, null);
+                            trees.add(new Tree(x, y, h, i, true, cc));
                         } else {
                             int[] bl = null;
                             if (S.blossom != null) {
@@ -489,6 +524,7 @@ final class Landscape {
                             roundTree(x, y, h, dark, light, mid, bl);
                         }
                     } else parasol(x, y, h * .95, dark, light, mid, snowCol);
+                    if (trees.size() == before) trees.add(new Tree(x, y, h, i, false, mid));
                 }
             }
 
@@ -500,10 +536,55 @@ final class Landscape {
                     if (Math.abs(x - pa[0]) < pa[1] + 10) continue;
                     double rad = 2 + r() * 2.5;
                     int fc = mix(S.flowers[(int) Math.floor(r() * S.flowers.length)], p0.tree, lw);
-                    circle(Math.round(x), Math.round(y), rad, fill(fc, .85));
+                    flower(x, y, rad * 1.3, fc, mix(col, BLACK, .25), x * 7 + y);
                 }
             }
         }
+    }
+
+    /** Massifs de fleurs sur une tranche : quelques touffes, chacune de plusieurs fleurs de la même couleur. */
+    private void meadow(Layer L, double ph, int i, int col, Season S, int tree, double lw) {
+        Rng mr = new Rng(9001 + i * 131 + S.flowerCount);
+        double sc = SCALE[i];
+        int clusters = S.flowerCount >= 70 ? 9 : 5;
+        int stem = mix(col, BLACK, .25);
+        for (int k = 0; k < clusters; k++) {
+            double cx = mr.r() * W;
+            int fc = mix(S.flowers[(int) Math.floor(mr.r() * S.flowers.length)], tree, lw);
+            int n = 5 + (int) (mr.r() * 6);
+            for (int j = 0; j < n; j++) {
+                double x = cx + (mr.r() - .5) * 120 * sc;
+                double y = yAt(L, x, ph) + 8 + mr.r() * 26 * sc;
+                double[] pa = pathAt(Math.min(Math.max(y, PATH_TOP), PATH_BOTTOM));
+                if (y > PATH_TOP - 20 && Math.abs(x - pa[0]) < pa[1] + 14) continue;
+                flower(x, y, (4.2 + mr.r() * 2.5) * sc, fc, stem, x * 3 + y * 5);
+            }
+        }
+    }
+
+    /**
+     * Fleur dessinée : tige et petite feuille, cinq pétales autour d'un cœur jaune (ou orangé pour
+     * les fleurs jaunes). `salt` fait varier l'orientation sans toucher au tirage du paysage.
+     */
+    private void flower(double x, double y, double rad, int color, int stemCol, double salt) {
+        double turn = (Math.sin(salt * 12.9898) * 43758.5453) % 1;
+        double stemH = rad * 2.6;
+        stroke.setColor(stemCol);
+        stroke.setStrokeWidth((float) Math.max(.8, rad * .28));
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        cv.drawLine((float) x, (float) (y + stemH), (float) x, (float) y, stroke);
+        ellipse(x + rad * .55, y + stemH * .6, rad * .55, rad * .22, fill(stemCol)); // feuille
+        Paint pf = fill(color);
+        for (int k = 0; k < 5; k++) {
+            double a = turn * 6.283 + k * 6.283 / 5;
+            cv.save();
+            cv.translate((float) (x + Math.cos(a) * rad * .62), (float) (y + Math.sin(a) * rad * .62 * .8));
+            cv.rotate((float) Math.toDegrees(a));
+            cv.drawOval((float) (-rad * .55), (float) (-rad * .36), (float) (rad * .55), (float) (rad * .36), pf);
+            cv.restore();
+        }
+        boolean yellow = (color >> 16 & 255) > 230 && (color >> 8 & 255) > 200 && (color & 255) < 190;
+        circle(x, y, rad * .32, fill(yellow ? c("#e8933a") : c("#f6c94a")));
     }
 
     private static int indexOf(Palette p) {
@@ -605,7 +686,8 @@ final class Landscape {
             double a = r() * 6.283, dd = Math.sqrt(r()) * R * .85;
             double rad = R * (.06 + r() * .05);
             int col = blossom[(int) Math.floor(r() * blossom.length)];
-            circle(cx + Math.cos(a) * dd, cy + Math.sin(a) * dd * .85, rad, fill(col));
+            // une sur trois seulement (les tirages restent les mêmes : le reste du paysage ne bouge pas)
+            if (k % 3 == 0) circle(cx + Math.cos(a) * dd, cy + Math.sin(a) * dd * .85, rad, fill(col));
         }
     }
 

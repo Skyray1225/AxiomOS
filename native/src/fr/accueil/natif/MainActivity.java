@@ -237,7 +237,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         xlp.topMargin = Math.round(.48f * H - 2.2f * vw);
         root.addView(toast, xlp);
 
-        prefs = new PrefsView(this, this, vw, store.animations);
+        prefs = new PrefsView(this, this, vw, store.animations, store.lifeFx);
         prefs.setVisibility(View.GONE);
         prefs.setElevation(10 * vw); // au-dessus du dock, qui a sa propre élévation
         root.addView(prefs, match());
@@ -1175,6 +1175,14 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         store.saveAnimations();
         prefs.setAnimations(on);
         scene.setAnimations(on);
+    }
+
+    @Override
+    public void setLifeFx(boolean on) {
+        store.lifeFx = on;
+        store.saveLifeFx();
+        prefs.setLifeFx(on);
+        scene.setLifeFx(on);
     }
 
     @Override

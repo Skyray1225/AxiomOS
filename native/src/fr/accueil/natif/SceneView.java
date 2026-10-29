@@ -69,6 +69,7 @@ class SceneView extends FrameLayout {
     private AmbientView ambient;
     private ImageView[] lands;        // Thinking : deux paysages, en fondu l'un sur l'autre
     private WeatherView wx;           // Thinking : météo dans le paysage
+    private LifeView life;            // Thinking : effets de saison
     private Bitmap landBmp;           // paysage affiché
     private int landIdx = -1, landOn = 0;
     private String landSeason;
@@ -134,6 +135,9 @@ class SceneView extends FrameLayout {
                     lands[i].setAlpha(0f);
                     addView(lands[i], new LayoutParams(full));
                 }
+                life = new LifeView(ctx);
+                life.setActive(store.animations && store.lifeFx);
+                addView(life, new LayoutParams(full));
                 wx = new WeatherView(ctx);
                 wx.setAnimations(store.animations);
                 addView(wx, new LayoutParams(full));
@@ -231,6 +235,7 @@ class SceneView extends FrameLayout {
         if (forcedCode >= 0) {
             wxCode = forcedCode;
             wx.setWeather(forcedCode, true);
+            life.setWeather(wx.kind());
             showWeatherIcon();
             if (landBmp != null) sendBackdrop();
         }
@@ -242,7 +247,10 @@ class SceneView extends FrameLayout {
         if (photos != null) showPhoto(photoForNow(), false);
         updateNight(false);
         if (lands != null) showLandscape(false);
-        if (wx != null && forcedCode >= 0) wx.setWeather(forcedCode, false);
+        if (wx != null && forcedCode >= 0) {
+            wx.setWeather(forcedCode, false);
+            life.setWeather(wx.kind());
+        }
         tick();
     }
 
@@ -250,6 +258,7 @@ class SceneView extends FrameLayout {
     void start() {
         minuteTick.run();
         if (theme.weather) weatherTick.run();
+        if (life != null) life.start();
         if (wx != null) {
             wx.start();
             ui.removeCallbacks(burstTick);
@@ -262,15 +271,22 @@ class SceneView extends FrameLayout {
         ui.removeCallbacks(weatherTick);
         ui.removeCallbacks(burstTick);
         if (wx != null) wx.stop();
+        if (life != null) life.stop();
     }
 
     /** Thinking : épisode d'animation de la pluie ou de la neige (arrivée sur l'accueil, touche). */
     void burst(long ms) {
         if (wx != null) wx.burst(ms);
+        if (life != null) life.burst(ms);
     }
 
     void setAnimations(boolean on) {
         if (wx != null) wx.setAnimations(on);
+        if (life != null) life.setActive(on && store.lifeFx);
+    }
+
+    void setLifeFx(boolean on) {
+        if (life != null) life.setActive(store.animations && on);
     }
 
     private static final long BURST_EVERY = 4 * 60 * 1000;
@@ -504,6 +520,7 @@ class SceneView extends FrameLayout {
             String before = wx.kind();
             float va = wx.veilAlpha();
             wx.setWeather(code, !first);
+            life.setWeather(wx.kind());
             if (landBmp != null && (!before.equals(wx.kind()) || va != wx.veilAlpha())) sendBackdrop();
         }
         temp.setText(Math.round(t) + "°");
@@ -575,6 +592,14 @@ class SceneView extends FrameLayout {
 
     private void setLandscape(Bitmap b, boolean fade) {
         landBmp = b;
+        final String sz = landSeason;
+        final int idx = landIdx;
+        worker.execute(() -> { // arbres du paysage, pour les feuilles et les lucioles
+            final java.util.List<Landscape.Tree> t = Landscape.trees(idx, sz);
+            ui.post(() -> {
+                if (idx == landIdx && sz.equals(landSeason)) life.setScene(sz, idx, t);
+            });
+        });
         final ImageView old = lands[landOn];
         boolean first = old.getDrawable() == null;
         landOn = 1 - landOn;
