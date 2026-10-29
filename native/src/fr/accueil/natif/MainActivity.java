@@ -149,6 +149,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         scene.forcedHour = getIntent().getFloatExtra("heure", Float.NaN);
         scene.forcedSeason = getIntent().getStringExtra("saison");    // Thinking, essais : --es saison hiver
         scene.forcedCode = getIntent().getIntExtra("meteo", -1);       // Thinking, essais : --ei meteo 63
+        if (getIntent().hasExtra("pluieMs")) WeatherView.Precip.frameMs = getIntent().getIntExtra("pluieMs", 0); // essais
         root.addView(scene, match());
 
         // Barre du haut : Préférences et Paramètres (flèche haut depuis le dock)

@@ -24,7 +24,7 @@ import java.util.Random;
  * Météo dans le paysage du thème Thinking, comme la version web : voile qui assombrit le ciel,
  * nuages, brume, pluie ou neige et éclairs. Chaque calque apparaît en fondu (6 s). Pluie et neige
  * s'animent par épisodes (à l'arrivée sur l'accueil, à chaque touche, puis 30 s toutes les 4 minutes),
- * à ~15 images par seconde, et seulement si les animations sont activées.
+ * à 60 images par seconde, et seulement si les animations sont activées.
  */
 class WeatherView extends FrameLayout {
 
@@ -288,8 +288,10 @@ class WeatherView extends FrameLayout {
 
     /* ===== Pluie et neige (coordonnées de la version web : demi-résolution, 70 % de la hauteur) ===== */
 
-    private static class Precip extends View {
-        private static final int FRAME_MS = 66, BUCKETS = 8;
+    static class Precip extends View {
+        // 0 : à chaque image de l'écran (60 i/s, ~47 % de CPU pendant un épisode, contre ~25 % à 33 ms et ~13 % à 66 ms)
+        static int frameMs = 0;
+        private static final int BUCKETS = 8;
         String kind = RAIN;
         int n;
         boolean night;
@@ -358,8 +360,13 @@ class WeatherView extends FrameLayout {
             if (!looping) {
                 looping = true;
                 last = SystemClock.uptimeMillis();
-                postDelayed(frame, FRAME_MS);
+                next(frame);
             }
+        }
+
+        private void next(Runnable r) {
+            if (frameMs <= 0) postOnAnimation(r);
+            else postDelayed(r, frameMs);
         }
 
         void halt() {
@@ -394,7 +401,7 @@ class WeatherView extends FrameLayout {
                     }
                 }
                 invalidate();
-                if (alive > 0) postDelayed(this, FRAME_MS);
+                if (alive > 0) next(this);
                 else looping = false; // fin de l'épisode : plus rien ne bouge
             }
         };
