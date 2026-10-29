@@ -51,7 +51,7 @@ import java.util.concurrent.Executors;
  * Changer de thème reconstruit l'écran (recreate), la fenêtre Préférences restant ouverte.
  * Tests : am start -n fr.accueil.natif/.MainActivity [--ef heure 21.5] [--ez intro true] [--ez veille true]
  */
-public class MainActivity extends Activity implements PrefsView.Host {
+public class MainActivity extends Activity implements PrefsView.Host, KidsDialog.Host {
 
     private static final String TAG = "AccueilNatif";
     static final TimeInterpolator EASE = new PathInterpolator(.22f, .8f, .24f, 1f);
@@ -114,6 +114,10 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private boolean editing, onTop, prefsOpen, topOnGear = true;
     private boolean okDown, okLong, swallowUp;
     private boolean idle, saverPreview;
+    private KidsDialog kidsDialog;   // code et menu parent (Kids)
+    private boolean kidsPick;        // Kids : choix des applis autorisées
+    private TextView guardBadge;     // Kids : avertissement « protection inactive »
+    private static String pendingToast; // message à afficher après la reconstruction de l'écran
     private boolean hdmiConnected = true; // la télé reçoit-elle l'image ?
     private long lastIntro = 0;
     private FrameLayout root;
@@ -160,6 +164,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         blp.topMargin = Math.round(5 * vh) - bp;
         blp.rightMargin = px(3) - bp;
         root.addView(bar, blp);
+        if (theme == Theme.KIDS) bar.setVisibility(View.GONE); // Kids : sortie seulement par l'espace parent
 
         tileW = px(15.5f);
         tileH = Math.round(tileW * 9 / 16f);
@@ -197,9 +202,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
         // Aide du mode édition : au-dessus du dock, ou en haut pour la grille et la liste
         hint = buildHint();
         FrameLayout.LayoutParams hlp;
-        if (theme == Theme.BULLIT) {
+        if (theme == Theme.BULLIT || theme == Theme.KIDS) {
             hlp = wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-            hlp.topMargin = Math.round(6.5f * vh);
+            hlp.topMargin = Math.round((theme == Theme.KIDS ? 3 : 6.5f) * vh);
         } else if (theme == Theme.MINIMAL) {
             hlp = wrap(Gravity.TOP | Gravity.LEFT);
             hlp.topMargin = Math.round(5 * vh);
@@ -231,6 +236,23 @@ public class MainActivity extends Activity implements PrefsView.Host {
         prefs.setElevation(10 * vw); // au-dessus du dock, qui a sa propre élévation
         root.addView(prefs, match());
 
+        kidsDialog = new KidsDialog(this, this, vw);
+        kidsDialog.setElevation(12 * vw); // au-dessus des Préférences (le code se choisit depuis elles)
+        root.addView(kidsDialog, match());
+        if (theme == Theme.KIDS) {
+            guardBadge = text(.9f * vw, 600, 0, false);
+            guardBadge.setShadowLayer(0, 0, 0, 0);
+            guardBadge.setText("Protection Kids inactive · les boutons raccourcis ne sont pas bloqués");
+            guardBadge.setTextColor(0xFF8A3B12);
+            guardBadge.setPadding(px(.9f), px(.4f), px(.9f), px(.4f));
+            guardBadge.setBackground(rounded(0xEBFFECD6, 2 * vw, 0, 0));
+            guardBadge.setVisibility(View.GONE);
+            FrameLayout.LayoutParams gl = wrap(Gravity.BOTTOM | Gravity.RIGHT);
+            gl.rightMargin = px(2);
+            gl.bottomMargin = Math.round(2 * vh);
+            root.addView(guardBadge, gl);
+        }
+
         // Intro AxiomOS, par-dessus tout
         intro = new IntroView(this, vw, this::wake);
         intro.setElevation(20 * vw);
@@ -242,6 +264,12 @@ public class MainActivity extends Activity implements PrefsView.Host {
         scene.showNow();
         onInk(scene.ink(), scene.inkSoft(), scene.isDark());
         loadApps();
+        syncGuard();
+        if (pendingToast != null) {
+            final String m = pendingToast;
+            pendingToast = null;
+            ui.postDelayed(() -> showToast(m), 600);
+        }
 
         Intent in = getIntent();
         if (savedInstanceState != null && savedInstanceState.getBoolean("prefs")) { // après un changement de thème
@@ -275,6 +303,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         scene.start();
         loadApps(); // applis installées ou retirées, et tri par usage mis à jour
         if (!saverPreview) wake();
+        checkGuard();
     }
 
     @Override
@@ -332,7 +361,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private final Runnable longOk = () -> {
         if (okLong) return;
         okLong = true;
-        if (!onTop && !prefsOpen) setEditing(!editing);
+        if (theme == Theme.KIDS) {
+            if (!kidsPick && !kidsDialog.isOpen()) kidsDialog.openCode("check", kidsDialog::openMenu);
+        } else if (!onTop && !prefsOpen) setEditing(!editing);
     };
 
     @Override
@@ -357,6 +388,15 @@ public class MainActivity extends Activity implements PrefsView.Host {
         }
         if (swallowUp) {
             if (!down) swallowUp = false;
+            return true;
+        }
+
+        if (kidsDialog.isOpen()) {
+            if (down && e.getRepeatCount() == 0) kidsDialog.onKey(k);
+            if (!down) { // l'appui long qui a ouvert le code ne doit pas bloquer OK ensuite
+                okDown = false;
+                ui.removeCallbacks(longOk);
+            }
             return true;
         }
 
@@ -393,7 +433,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
                     else openPrefs();
                 } else if (editing) {
                     if (theme != Theme.MINIMAL) setEditing(false); // Minimal : seul Retour termine
-                }
+                } else if (kidsPick) toggleKidAllowed();
                 else launch();
             }
             return true;
@@ -427,7 +467,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
             int c = theme.columns;
             if (focus / c < (tiles.size() - 1) / c) focusOn(Math.min(tiles.size() - 1, focus + c));
         } else if (k == KeyEvent.KEYCODE_DPAD_UP) {
-            if (!onTop) selectTop(true);
+            if (!onTop && theme != Theme.KIDS) selectTop(true);
         } else if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
             if (onTop) leaveTop();
         } else if (onTop) {
@@ -439,7 +479,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
     }
 
     private void onBack() {
-        if (editing) setEditing(false);
+        if (kidsPick) setKidsPick(false);
+        else if (editing) setEditing(false);
         else if (onTop) leaveTop();
         // sinon : écran d'accueil, le bouton retour ne fait rien
     }
@@ -595,19 +636,21 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     /** Bannière dessinée directement à la taille de la tuile (ou icône centrée sur fond blanc). */
     private Bitmap banner(ResolveInfo ri, PackageManager pm) {
+        // Kids : tuiles bien plus grandes, bannières dessinées à leur taille pour rester nettes
+        int bw = theme == Theme.KIDS ? itemW : tileW, bh = theme == Theme.KIDS ? itemH : tileH;
         try {
             Drawable d = ri.activityInfo.loadBanner(pm);
             if (d == null) d = ri.activityInfo.applicationInfo.loadBanner(pm);
             boolean isIcon = d == null;
             if (isIcon) d = ri.loadIcon(pm);
-            Bitmap bmp = Bitmap.createBitmap(tileW, tileH, Bitmap.Config.ARGB_8888);
+            Bitmap bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(bmp);
             if (isIcon) {
                 c.drawColor(Color.WHITE);
-                int s = Math.round(tileH * 2 / 3f);
-                d.setBounds((tileW - s) / 2, (tileH - s) / 2, (tileW + s) / 2, (tileH + s) / 2);
+                int s = Math.round(bh * 2 / 3f);
+                d.setBounds((bw - s) / 2, (bh - s) / 2, (bw + s) / 2, (bh + s) / 2);
             } else {
-                d.setBounds(0, 0, tileW, tileH);
+                d.setBounds(0, 0, bw, bh);
             }
             d.draw(c);
             return bmp;
@@ -619,6 +662,11 @@ public class MainActivity extends Activity implements PrefsView.Host {
     /** Applis du dock : favoris puis usage ; les masquées n'apparaissent qu'en mode édition. */
     private List<App> visibleApps() {
         List<App> all = store.ordered(allApps);
+        if (theme == Theme.KIDS && !kidsPick) { // Kids : seulement les applis autorisées
+            List<App> out = new ArrayList<>();
+            for (App a : all) if (store.kidsApps.contains(a.pkg)) out.add(a);
+            return out;
+        }
         return all; // plus de masquage d'applis, dans aucun thème
     }
 
@@ -652,7 +700,19 @@ public class MainActivity extends Activity implements PrefsView.Host {
         area = new FrameLayout(this);
         FrameLayout.LayoutParams al;
         int pl, pt, pr, pb;
-        if (theme == Theme.BULLIT) {
+        if (theme == Theme.KIDS) {
+            // toute la largeur (marges de 9vw comprises) : les grandes ombres des tuiles ne sont pas coupées
+            al = new FrameLayout.LayoutParams(W, H - Math.round(26 * vh));
+            al.topMargin = Math.round(26 * vh);
+            pl = pr = px(9 + 1.6f);
+            pt = px(1.6f);
+            pb = Math.round(4 * vh);
+            int g = px(2.6f), inner = W - pl - pr;
+            itemW = (inner - 2 * g) / 3;
+            itemH = Math.round(itemW * 9 / 16f);
+            stepX = itemW + g;
+            stepY = itemH + g;
+        } else if (theme == Theme.BULLIT) {
             al = new FrameLayout.LayoutParams(W - px(4), H - Math.round(17 * vh));
             al.leftMargin = px(2);
             al.topMargin = Math.round(17 * vh);
@@ -702,7 +762,15 @@ public class MainActivity extends Activity implements PrefsView.Host {
                 lp.leftMargin = padL;
                 lp.topMargin = padT + i * stepY;
             } else if (theme.dock == Theme.GRID) {
-                v = new TileView(this, a.banner, vw, TileView.GRID);
+                TileView tv = new TileView(this, a.banner, vw, theme == Theme.KIDS ? TileView.KIDS : TileView.GRID);
+                if (theme == Theme.KIDS) {
+                    // inclinaison propre à chaque appli (stable), alternée pour éviter un effet uniforme
+                    int hsh = a.pkg.hashCode();
+                    float rnd = ((hsh >>> 1) % 1000) / 1000f;
+                    tv.setTilt((i % 2 == 1 ? 1 : -1) * (1.2f + rnd * 2.8f), (((hsh >>> 10) % 100) / 100f * 1.2f - .6f) * vw);
+                    tv.setKidState(kidsPick ? (store.kidsApps.contains(a.pkg) ? 1 : 2) : 0);
+                }
+                v = tv;
                 lp = new FrameLayout.LayoutParams(itemW, itemH);
                 lp.leftMargin = padL + (i % cols) * stepX;
                 lp.topMargin = padT + (i / cols) * stepY;
@@ -721,7 +789,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
         if (theme.dock == Theme.CAROUSEL) {
             tp.width = Math.max(tileW, shown.size() * (tileW + gap) - gap);
         } else {
-            tp.height = padT + padB + Math.max(itemH, ((shown.size() + cols - 1) / cols) * stepY);
+            // au moins toute la zone : les ombres des tuiles ne sont pas coupées au bas de la grille
+            tp.height = Math.max(area.getLayoutParams().height,
+                    padT + padB + Math.max(itemH, ((shown.size() + cols - 1) / cols) * stepY));
         }
         track.setLayoutParams(tp);
         if (tiles.isEmpty()) return;
@@ -976,9 +1046,83 @@ public class MainActivity extends Activity implements PrefsView.Host {
             return;
         }
         if (id.equals(theme.id)) return;
+        if ("kids".equals(id)) { // le mode Kids demande d'abord un code parent
+            Runnable go = () -> {
+                store.themePrev = theme.id;
+                store.saveKids();
+                prefsOpen = false; // pas de Préférences en Kids
+                pendingToast = "Mode Kids activé · appui long sur OK pour l'espace parent";
+                switchTheme("kids");
+            };
+            if (store.kidsCode == null) kidsDialog.openCode("set1", go);
+            else go.run();
+            return;
+        }
+        switchTheme(id);
+    }
+
+    /** Enregistre le thème et reconstruit l'écran (Préférences toujours ouvertes si elles l'étaient). */
+    private void switchTheme(String id) {
         store.theme = id;
         store.saveTheme();
-        recreate(); // l'écran est reconstruit pour le nouveau thème, Préférences toujours ouvertes
+        recreate();
+    }
+
+    /* ===== Kids : espace parent, applis autorisées, gardien ===== */
+
+    @Override
+    public String kidsCode() {
+        return store.kidsCode;
+    }
+
+    @Override
+    public void saveKidsCode(String code) {
+        store.kidsCode = code;
+        store.saveKids();
+    }
+
+    @Override
+    public void kidsMenu(int row) {
+        if (row == 0) setKidsPick(true);
+        else if (row == 1) kidsDialog.openCode("set1", null);
+        else { // quitter le mode Kids : retour au thème d'avant
+            String prev = store.themePrev;
+            switchTheme(Theme.available(prev) && !"kids".equals(prev) ? prev : "photo");
+        }
+    }
+
+    /** Choix des applis autorisées : toutes les applis s'affichent, OK autorise ou retire. */
+    private void setKidsPick(boolean on) {
+        kidsPick = on;
+        String keep = focus < shown.size() ? shown.get(focus).pkg : null;
+        buildDock(keep);
+        hint.animate().alpha(on ? 1 : 0).translationY(on ? 0 : vw).setDuration(on ? 500 : 400).setInterpolator(EASE);
+        scene.setGreetVisible(!on);
+    }
+
+    private void toggleKidAllowed() {
+        if (focus >= shown.size()) return;
+        String p = shown.get(focus).pkg;
+        if (!store.kidsApps.remove(p)) store.kidsApps.add(p);
+        store.saveKids();
+        syncGuard();
+        buildDock(p);
+    }
+
+    /** Gardien (service d'accessibilité) : actif seulement en Kids, avec la liste des applis autorisées. */
+    private void syncGuard() {
+        KidsGuard.set(this, theme == Theme.KIDS, new java.util.HashSet<>(store.kidsApps));
+        checkGuard();
+    }
+
+    private final Runnable guardCheck = this::checkGuard;
+
+    /** Kids : avertit les parents si le gardien ne tourne pas ; revérifié toutes les 30 s. */
+    private void checkGuard() {
+        if (guardBadge == null) return;
+        guardBadge.setVisibility(KidsGuard.running ? View.GONE : View.VISIBLE);
+        ui.removeCallbacks(guardCheck);
+        ui.postDelayed(guardCheck, 30 * 1000);
     }
 
     @Override
@@ -1002,7 +1146,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
         prefs.setAnimations(on);
     }
 
-    private void showToast(String msg) {
+    @Override
+    public void showToast(String msg) {
         toast.setText(msg);
         toast.animate().cancel();
         toast.setScaleX(.95f);
@@ -1075,7 +1220,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
         LinearLayout h = new LinearLayout(this);
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(px(1.6f), px(.7f), px(1.6f), px(.7f));
-        String[][] parts = theme == Theme.MINIMAL ? new String[][]{{"↑ ↓", "Déplacer"}, {"→", "Épingler"}, {"Retour", "Terminer"}}
+        String[][] parts = theme == Theme.KIDS ? new String[][]{{"OK", "Autoriser / retirer"}, {"Retour", "Terminer"}}
+                : theme == Theme.MINIMAL ? new String[][]{{"↑ ↓", "Déplacer"}, {"→", "Épingler"}, {"Retour", "Terminer"}}
                 : theme == Theme.BULLIT ? new String[][]{{"← → ↑ ↓", "Déplacer"}, {"OK", "Valider"}}
                 : new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"OK", "Terminer"}};
         for (int i = 0; i < parts.length; i++) {

@@ -30,6 +30,10 @@ class Store {
     private final Map<String, double[]> usage = new HashMap<>(); // pkg -> {score, horodatage}
     boolean animations;
     String theme, minMode; // thème ; apparence de Minimal : auto, light, dark
+    // Kids : applis autorisées, code parent (4 flèches, ex. "U,U,L,R"), thème à retrouver en quittant Kids
+    static final String[] KIDS_DEFAULT = {"com.google.android.youtube.tv", "com.disney.disneyplus", "com.vectorunit.purple.googleplay"};
+    final Set<String> kidsApps = new LinkedHashSet<>();
+    String kidsCode, themePrev;
     private boolean pinsLoaded;
 
     Store(Context ctx) {
@@ -43,6 +47,15 @@ class Store {
         animations = !"false".equals(sp.getString("animations", "true"));
         theme = readString("theme", "photo");
         minMode = readString("minMode", "auto");
+        kidsCode = readString("kidsCode", null);
+        themePrev = readString("themePrev", "photo");
+        if (sp.contains("kidsApps")) {
+            List<String> k = new ArrayList<>();
+            readList("kidsApps", k);
+            kidsApps.addAll(k);
+        } else {
+            Collections.addAll(kidsApps, KIDS_DEFAULT);
+        }
         try {
             JSONObject u = new JSONObject(sp.getString("usage", "{}"));
             for (java.util.Iterator<String> it = u.keys(); it.hasNext(); ) {
@@ -67,6 +80,12 @@ class Store {
     void saveTheme() { put("theme", JSONObject.quote(theme)); }
 
     void saveMinMode() { put("minMode", JSONObject.quote(minMode)); }
+
+    void saveKids() {
+        put("kidsApps", new JSONArray(new ArrayList<>(kidsApps)).toString());
+        put("kidsCode", kidsCode == null ? "null" : JSONObject.quote(kidsCode));
+        put("themePrev", JSONObject.quote(themePrev));
+    }
 
     private void readList(String key, List<String> out) {
         try {

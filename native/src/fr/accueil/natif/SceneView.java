@@ -113,6 +113,9 @@ class SceneView extends FrameLayout {
             case "minimal":
                 setBackgroundColor(0xFFF3F1EC);
                 break;
+            case "kids":
+                addView(new KidsBackground(ctx), new LayoutParams(full));
+                break;
         }
 
         // Bloc de l'heure
@@ -123,10 +126,17 @@ class SceneView extends FrameLayout {
         top.setOrientation(LinearLayout.VERTICAL);
         top.setClipChildren(false);
         greet = text(ctx, 1.05f * vw, 500, .24f, true, theme.shadow);
-        clock = text(ctx, theme.clockVw * vw, 200, theme.clockSpacing, false, theme.shadow);
-        date = text(ctx, theme.subVw * vw, 500, theme.subSpacing, true, theme.shadow);
-        temp = text(ctx, theme.subVw * vw, 500, theme.subSpacing, true, theme.shadow);
-        if (theme.greet) top.addView(greet, margins(Math.round(.2f * vw), 0, 0, Math.round(.4f * vh)));
+        clock = text(ctx, theme.clockVw * vw, theme.clockWeight, theme.clockSpacing, false, theme.shadow);
+        date = text(ctx, theme.subVw * vw, theme.subWeight, theme.subSpacing, theme.subCaps, theme.shadow);
+        temp = text(ctx, theme.subVw * vw, theme.subWeight, theme.subSpacing, theme.subCaps, theme.shadow);
+        if (theme == Theme.KIDS) { // « Coucou ! » en orange, gras
+            greet.setTextSize(TypedValue.COMPLEX_UNIT_PX, 2.6f * vw);
+            greet.setTypeface(font(700));
+            greet.setLetterSpacing(.02f);
+            greet.setAllCaps(false);
+        }
+        if (theme.greet) top.addView(greet, margins(theme.center ? 0 : Math.round(.2f * vw), 0, 0, Math.round((theme.center ? .2f : .4f) * vh)));
+        if (theme.center) top.setGravity(Gravity.CENTER_HORIZONTAL);
         top.addView(clock, margins(0, 0, 0, 0));
         LinearLayout sub = new LinearLayout(ctx);
         sub.setOrientation(LinearLayout.HORIZONTAL);
@@ -153,7 +163,8 @@ class SceneView extends FrameLayout {
             wxBox.setVisibility(GONE);
         }
         top.addView(sub, margins(Math.round(theme.subLeftVw * vw), Math.round(theme.subTopVh * vh), 0, 0));
-        LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT);
+        LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | (theme.center ? Gravity.CENTER_HORIZONTAL : Gravity.LEFT));
         tlp.leftMargin = Math.round(theme.topLeftVw * vw);
         tlp.topMargin = Math.round(theme.topTopVh * vh);
         addView(top, tlp);
@@ -203,6 +214,11 @@ class SceneView extends FrameLayout {
         return Math.max(0, photoIdx >= 0 ? photoIdx : photoForNow());
     }
 
+    /** Kids, choix des applis : la salutation s'efface sous l'aide. */
+    void setGreetVisible(boolean v) {
+        greet.setVisibility(v ? VISIBLE : INVISIBLE);
+    }
+
     /** Veille (Modern, Ambient) : le bloc de l'heure descend (1,8 s). */
     void setIdle(boolean idle, boolean animate) {
         float dy = idle && theme.idle ? 24 * vh : 0;
@@ -223,6 +239,7 @@ class SceneView extends FrameLayout {
         top.setLayoutParams(lp);
         top.setGravity(Gravity.CENTER_HORIZONTAL);
         if (theme == Theme.BULLIT) clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, 11 * vw);
+        if (theme == Theme.KIDS) clock.setTextSize(TypedValue.COMPLEX_UNIT_PX, 10 * vw);
     }
 
     /* ===== Heure, nuit, couleurs ===== */
@@ -247,8 +264,10 @@ class SceneView extends FrameLayout {
         Calendar n = Calendar.getInstance();
         int h = n.get(Calendar.HOUR_OF_DAY);
         clock.setText(clockText());
-        greet.setText(h < 5 || h >= 18 ? "Bonsoir" : h < 12 ? "Bonjour" : "Bon après-midi");
-        date.setText(new SimpleDateFormat("EEEE d MMMM", Locale.FRANCE).format(n.getTime()));
+        if (theme == Theme.KIDS) greet.setText(h < 5 || h >= 19 ? "Bonne soirée !" : "Coucou !");
+        else greet.setText(h < 5 || h >= 18 ? "Bonsoir" : h < 12 ? "Bonjour" : "Bon après-midi");
+        String d = new SimpleDateFormat("EEEE d MMMM", Locale.FRANCE).format(n.getTime());
+        date.setText(Character.toUpperCase(d.charAt(0)) + d.substring(1));
     }
 
     private Calendar now() {
@@ -292,7 +311,10 @@ class SceneView extends FrameLayout {
 
     /** Couleurs du texte ; Minimal : clair ou sombre selon le réglage (auto = sombre la nuit). */
     void applyInk(boolean animate) {
-        if (theme != Theme.MINIMAL) {
+        if (theme == Theme.KIDS) { // bleu marine, salutation orange
+            ink = 0xFF24456E;
+            inkSoft = 0xBF24456E;
+        } else if (theme != Theme.MINIMAL) {
             ink = Color.WHITE;
             inkSoft = theme == Theme.BULLIT ? 0x99FFFFFF : 0xDBFFFFFF;
         } else {
@@ -314,7 +336,7 @@ class SceneView extends FrameLayout {
         clock.setTextColor(ink);
         // opacité .9 dans la couleur, pas sur la vue : une vue transparente est dessinée
         // dans un calque à sa taille, qui couperait l'ombre du texte
-        greet.setTextColor((ink & 0x00FFFFFF) | 0xE6000000);
+        greet.setTextColor(theme == Theme.KIDS ? 0xFFFF7A59 : (ink & 0x00FFFFFF) | 0xE6000000);
         date.setTextColor(inkSoft);
         temp.setTextColor(inkSoft);
         if (wxIcon != null) tintIcon();
@@ -446,6 +468,38 @@ class SceneView extends FrameLayout {
         @Override
         protected void onDraw(Canvas c) {
             c.drawRect(0, 0, getWidth(), getHeight(), p);
+        }
+    }
+
+    /** Fond Kids : ciel dégradé, soleil en haut à droite, nuage flou en bas à gauche. */
+    private static class KidsBackground extends View {
+        private final Paint sky = new Paint(), sun = new Paint(Paint.ANTI_ALIAS_FLAG), cloud = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        KidsBackground(Context ctx) {
+            super(ctx);
+            cloud.setColor(0x8CFFFFFF);
+            setLayerType(LAYER_TYPE_SOFTWARE, null); // flou du nuage (dessiné une fois)
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int ow, int oh) {
+            float vw = w / 100f;
+            sky.setShader(new android.graphics.LinearGradient(0, 0, 0, h, new int[]{0xFFA9DCFF, 0xFFDFF3FF, 0xFFFFF4D6},
+                    new float[]{0, .55f, 1}, Shader.TileMode.CLAMP));
+            float r = 13 * vw, cx = w + 6 * vw - r, cy = -8 * vw + r;
+            sun.setShader(new RadialGradient(cx, cy, r, new int[]{0xFFFFF3A8, 0xFFFFD75A, 0x00FFD75A},
+                    new float[]{0, .6f / .7f, 1}, Shader.TileMode.CLAMP));
+            cloud.setMaskFilter(new android.graphics.BlurMaskFilter(vw, android.graphics.BlurMaskFilter.Blur.NORMAL));
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            int w = getWidth(), h = getHeight();
+            float vw = w / 100f;
+            c.drawRect(0, 0, w, h, sky);
+            float r = 13 * vw;
+            c.drawCircle(w + 6 * vw - r, -8 * vw + r, r, sun);
+            c.drawOval(-8 * vw, h + 6 * vw - 16 * vw, 32 * vw, h + 6 * vw, cloud);
         }
     }
 

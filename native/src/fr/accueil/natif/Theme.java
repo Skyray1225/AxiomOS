@@ -7,7 +7,7 @@ package fr.accueil.natif;
  */
 final class Theme {
 
-    static final int CAROUSEL = 0, GRID = 1, LIST = 2;
+    static final int CAROUSEL = 0, GRID = 1, LIST = 2; // Kids : grille de 3 colonnes
 
     final String id;
     final int dock;          // forme du dock
@@ -18,6 +18,10 @@ final class Theme {
     final boolean title;     // nom de l'appli au-dessus du dock
     final boolean shadow;    // ombre portée sous les textes (sur une photo ou un dégradé)
     final float topLeftVw, topTopVh, clockVw, clockSpacing, subVw, subSpacing, subTopVh, subLeftVw;
+    // réglages propres à Kids (valeurs par défaut pour les autres thèmes)
+    boolean center;          // bloc de l'heure centré en haut
+    int clockWeight = 200, subWeight = 500;
+    boolean subCaps = true;  // date en capitales
 
     private Theme(String id, int dock, int columns, boolean idle, boolean greet, boolean weather, boolean title, boolean shadow,
                   float topLeftVw, float topTopVh, float clockVw, float clockSpacing,
@@ -49,7 +53,17 @@ final class Theme {
     static final Theme MINIMAL = new Theme("minimal", LIST, 1, false, false, true, false, false,
             6, 14, 15, -.035f, 1.1f, .25f, 1.5f, .6f);
 
-    static final Theme[] ALL = {MODERN, BULLIT, AMBIENT, MINIMAL};
+    static final Theme KIDS = new Theme("kids", GRID, 3, false, true, false, false, false,
+            0, 5, 4.2f, -.02f, 1.2f, 0, .3f, 0);
+
+    static {
+        KIDS.center = true;
+        KIDS.clockWeight = 600;
+        KIDS.subWeight = 600;
+        KIDS.subCaps = false;
+    }
+
+    static final Theme[] ALL = {MODERN, BULLIT, AMBIENT, MINIMAL, KIDS};
 
     /** Thème enregistré, ou Modern s'il n'est pas (encore) porté en natif. */
     static Theme of(String id) {

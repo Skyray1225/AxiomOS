@@ -29,19 +29,23 @@ class TileView extends View implements DockItem {
     /** Dimensions propres au thème (en vw) et zoom de la tuile sélectionnée. */
     static final class Style {
         final float radius, ring, focusScale, editScale, editDy, elevation;
+        final boolean kids; // Kids : bordure blanche, tuile inclinée qui rebondit, pas de contour ni de lueur
 
-        Style(float radius, float ring, float focusScale, float editScale, float editDy, float elevation) {
+        Style(float radius, float ring, float focusScale, float editScale, float editDy, float elevation, boolean kids) {
             this.radius = radius;
             this.ring = ring;
             this.focusScale = focusScale;
             this.editScale = editScale;
             this.editDy = editDy;
             this.elevation = elevation;
+            this.kids = kids;
         }
     }
 
-    static final Style CAROUSEL = new Style(1.4f, .18f, 1.04f, 1.08f, -1.2f, .5f);
-    static final Style GRID = new Style(1.1f, .22f, 1.06f, 1.08f, 0, .8f);
+    static final Style CAROUSEL = new Style(1.4f, .18f, 1.04f, 1.08f, -1.2f, .5f, false);
+    static final Style GRID = new Style(1.1f, .22f, 1.06f, 1.08f, 0, .8f, false);
+    static final Style KIDS = new Style(2.2f, 0, 1.08f, 1.08f, 0, 1.2f, true);
+    private static final android.animation.TimeInterpolator BOUNCE = new PathInterpolator(.3f, 1.6f, .5f, 1f);
 
     private static final float SKEW = (float) Math.tan(Math.toRadians(-18));
     private static final ColorMatrixColorFilter GREY, DIM;
@@ -73,6 +77,9 @@ class TileView extends View implements DockItem {
     private ValueAnimator ringAnim, shineAnim;
     private ObjectAnimator wiggle;
     private boolean selected, editing, pinned, hiddenApp;
+    private float tiltRot, tiltDy; // Kids : inclinaison propre à chaque appli
+    private int kidState;          // Kids, choix des applis : 0 rien, 1 autorisée, 2 non autorisée
+    private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     TileView(Context ctx, Bitmap banner, float vw, Style style) {
         super(ctx);
@@ -107,9 +114,34 @@ class TileView extends View implements DockItem {
 
     @Override
     protected void onDraw(Canvas c) {
-        bmpPaint.setColorFilter(hiddenApp ? GREY : editing && !selected ? DIM : null);
+        bmpPaint.setColorFilter(hiddenApp || kidState == 2 ? GREY : editing && !selected ? DIM : null);
         if (banner != null) c.drawBitmap(banner, null, bounds, bmpPaint);
         else c.drawColor(0xFF2A2D33);
+        if (style.kids) { // bordure blanche ; sélectionnée : jaune, entourée d'orange
+            borderPaint.setStyle(Paint.Style.STROKE);
+            if (selected) {
+                borderPaint.setColor(0xFFFFCF3A);
+                borderPaint.setStrokeWidth(1.5f * vw);
+                c.drawRoundRect(bounds, radius, radius, borderPaint);
+                borderPaint.setColor(0xFFFF9F1C);
+                borderPaint.setStrokeWidth(.8f * vw);
+            } else {
+                borderPaint.setColor(0xFFFFFFFF);
+                borderPaint.setStrokeWidth(.7f * vw);
+            }
+            c.drawRoundRect(bounds, radius, radius, borderPaint);
+            if (kidState == 1) { // ✓ vert : appli autorisée
+                float d = 2 * vw, x = getWidth() - .6f * vw - d, y = .6f * vw;
+                badgePaint.setColor(0xFF2FB36B);
+                c.drawCircle(x + d / 2, y + d / 2, d / 2, badgePaint);
+                badgePaint.setColor(0xFFFFFFFF);
+                badgePaint.setTextSize(1.2f * vw);
+                badgePaint.setFakeBoldText(true);
+                badgePaint.setTextAlign(Paint.Align.CENTER);
+                c.drawText("✓", x + d / 2, y + d / 2 + .42f * vw, badgePaint);
+            }
+            return;
+        }
         if (shine >= 0) {
             float w = getWidth(), h = getHeight(), sw = .4f * w;
             c.save();
@@ -134,6 +166,20 @@ class TileView extends View implements DockItem {
         icon.draw(c);
     }
 
+    /** Kids : inclinaison (degrés) et décalage vertical (px) propres à l'appli. */
+    void setTilt(float rot, float dy) {
+        tiltRot = rot;
+        tiltDy = dy;
+        updateTransform(false);
+    }
+
+    /** Kids, choix des applis autorisées : 0 normal, 1 autorisée (✓), 2 non autorisée (grisée). */
+    void setKidState(int state) {
+        kidState = state;
+        setAlpha(state == 2 ? .45f : 1f);
+        invalidate();
+    }
+
     /** Appli épinglée / masquée (pastilles et grisé). */
     @Override
     public void setFlags(boolean pinned, boolean hiddenApp) {
@@ -154,7 +200,9 @@ class TileView extends View implements DockItem {
     public void setSelected(boolean on, boolean animate, boolean withShine) {
         selected = on;
         if (ringAnim != null) ringAnim.cancel();
-        if (!animate) {
+        if (style.kids) {
+            invalidate();
+        } else if (!animate) {
             ring = on ? 1 : 0;
             invalidate();
         } else {
@@ -168,6 +216,24 @@ class TileView extends View implements DockItem {
 
     /** Zoom de la tuile sélectionnée ; en édition, elle se soulève et se dandine. */
     private void updateTransform(boolean animate) {
+        if (style.kids) { // se redresse un peu, monte et grossit avec un petit rebond
+            float scale = selected ? style.focusScale : 1f, dy = tiltDy - (selected ? .6f * vw : 0), rot = selected ? tiltRot * .2f : tiltRot;
+            setTranslationZ(selected ? vw : 0);
+            animate().cancel();
+            if (animate && selected) {
+                setScaleX(.96f);
+                setScaleY(.96f);
+                animate().scaleX(scale).scaleY(scale).translationY(dy).rotation(rot).setDuration(500).setInterpolator(BOUNCE);
+            } else if (animate) {
+                animate().scaleX(scale).scaleY(scale).translationY(dy).rotation(rot).setDuration(250).setInterpolator(MainActivity.EASE);
+            } else {
+                setScaleX(scale);
+                setScaleY(scale);
+                setTranslationY(dy);
+                setRotation(rot);
+            }
+            return;
+        }
         boolean wig = editing && selected;
         float scale = wig ? style.editScale : selected ? style.focusScale : 1f, dy = wig ? style.editDy * vw : 0;
         setTranslationZ(selected ? vw : 0); // la tuile sélectionnée passe devant ses voisines
