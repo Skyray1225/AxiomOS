@@ -32,7 +32,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 26; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 28; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
     static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel"};
 
@@ -201,6 +201,14 @@ final class Landscape {
         cv.drawOval((float) (cx - rx), (float) (cy - ry), (float) (cx + rx), (float) (cy + ry), p);
     }
 
+    private static Bitmap png(Context ctx, String name) {
+        try (InputStream in = ctx.getAssets().open("paysages/" + name + ".png")) {
+            return BitmapFactory.decodeStream(in);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static Bitmap asset(Context ctx, String name) {
         try (InputStream in = ctx.getAssets().open("paysages/" + name + ".jpg")) {
             BitmapFactory.Options o = new BitmapFactory.Options();
@@ -238,7 +246,11 @@ final class Landscape {
         int[] px = new int[W * H];
         base.getPixels(px, 0, W, 0, 0, W, H);
         int[] sky = skyMask(ctx, px); // opacité du ciel, 0 … 255
-        Bitmap emission = special && idx >= 2 ? emission(px, prior(ctx)) : null; // sources de lumière de l'illustration
+        boolean hal = "halloween".equals(seasonId);
+        // Halloween : masque dessiné à l'avance (sources, zones éclairées) ; Noël : détection automatique
+        Bitmap mask = hal && idx >= 2 ? png(ctx, "halloween_masque") : null;
+        int[] orig = mask != null ? px.clone() : null;
+        Bitmap emission = special && idx >= 2 && !hal ? emission(px, prior(ctx)) : null; // sources de lumière de l'illustration
         double sx = 330, sy = new double[]{430, 250, 450, 250}[idx];
         Paint img = new Paint(Paint.FILTER_BITMAP_FLAG);
         if (idx == 1) { // jour : l'illustration telle quelle, le soleil derrière les montagnes
@@ -276,6 +288,10 @@ final class Landscape {
                     alpha(idx == 0 ? c("#ffc9a6") : c("#6a4a6a"), .04), Shader.TileMode.CLAMP));
             warm.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
             cv.drawRect(0, 350, W, H, warm);
+        }
+        if (mask != null) {
+            maskedLights(orig, mask, idx == 3 ? 1 : .5);
+            mask.recycle();
         }
         if (emission != null) {
             lightUp(emission, idx == 3 ? 1 : .5);
@@ -344,6 +360,29 @@ final class Landscape {
         }
         ete.recycle();
         return SKY0;
+    }
+
+    /**
+     * Lumières d'Halloween d'après son masque (tools/masque_halloween.py) : en vert, les zones
+     * éclairées (sol et herbe autour des citrouilles) retrouvent une partie de leur luminosité
+     * d'origine ; en rouge, les sources (visages allumés, ampoules) leur éclat entier, puis diffusent.
+     * Le reste suit la teinte sombre de la nuit.
+     */
+    private void maskedLights(int[] orig, Bitmap mask, double strength) {
+        int[] m = new int[W * H];
+        mask.getPixels(m, 0, W, 0, 0, W, H);
+        int[] amb = new int[W * H], src = new int[W * H];
+        for (int i = 0; i < m.length; i++) {
+            int r = m[i] >> 16 & 255, g = m[i] >> 8 & 255, c = orig[i] & 0x00FFFFFF;
+            if (g > 2) amb[i] = (int) Math.round(g * .9 * strength) << 24 | c;
+            if (r > 2) src[i] = r << 24 | c;
+        }
+        Bitmap a = Bitmap.createBitmap(amb, W, H, Bitmap.Config.ARGB_8888);
+        cv.drawBitmap(a, 0, 0, null);
+        a.recycle();
+        Bitmap e = Bitmap.createBitmap(src, W, H, Bitmap.Config.ARGB_8888);
+        lightUp(e, strength);
+        e.recycle();
     }
 
     /**
