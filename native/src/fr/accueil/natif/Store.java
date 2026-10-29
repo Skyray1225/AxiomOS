@@ -29,6 +29,7 @@ class Store {
     final Set<String> hidden = new LinkedHashSet<>();
     private final Map<String, double[]> usage = new HashMap<>(); // pkg -> {score, horodatage}
     boolean animations;
+    String theme, minMode; // thème ; apparence de Minimal : auto, light, dark
     private boolean pinsLoaded;
 
     Store(Context ctx) {
@@ -40,6 +41,8 @@ class Store {
         readList("hidden", h);
         hidden.addAll(h);
         animations = !"false".equals(sp.getString("animations", "true"));
+        theme = readString("theme", "photo");
+        minMode = readString("minMode", "auto");
         try {
             JSONObject u = new JSONObject(sp.getString("usage", "{}"));
             for (java.util.Iterator<String> it = u.keys(); it.hasNext(); ) {
@@ -50,6 +53,20 @@ class Store {
         } catch (Exception ignored) {
         }
     }
+
+    /** Chaîne enregistrée au format JSON ("photo"), comme dans le localStorage web. */
+    private String readString(String key, String def) {
+        try {
+            Object v = new org.json.JSONTokener(sp.getString(key, "null")).nextValue();
+            return v instanceof String ? (String) v : def;
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    void saveTheme() { put("theme", JSONObject.quote(theme)); }
+
+    void saveMinMode() { put("minMode", JSONObject.quote(minMode)); }
 
     private void readList(String key, List<String> out) {
         try {

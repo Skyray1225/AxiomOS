@@ -24,7 +24,24 @@ import android.view.animation.PathInterpolator;
  * et « masquée ». Zoom, déplacement et rotation passent par les propriétés de la vue :
  * le compositeur les applique sans redessiner l'image.
  */
-class TileView extends View {
+class TileView extends View implements DockItem {
+
+    /** Dimensions propres au thème (en vw) et zoom de la tuile sélectionnée. */
+    static final class Style {
+        final float radius, ring, focusScale, editScale, editDy, elevation;
+
+        Style(float radius, float ring, float focusScale, float editScale, float editDy, float elevation) {
+            this.radius = radius;
+            this.ring = ring;
+            this.focusScale = focusScale;
+            this.editScale = editScale;
+            this.editDy = editDy;
+            this.elevation = elevation;
+        }
+    }
+
+    static final Style CAROUSEL = new Style(1.4f, .18f, 1.04f, 1.08f, -1.2f, .5f);
+    static final Style GRID = new Style(1.1f, .22f, 1.06f, 1.08f, 0, .8f);
 
     private static final float SKEW = (float) Math.tan(Math.toRadians(-18));
     private static final ColorMatrixColorFilter GREY, DIM;
@@ -43,6 +60,7 @@ class TileView extends View {
 
     private final Bitmap banner;
     private final float radius, vw;
+    private final Style style;
     private final Paint bmpPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
     private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shinePaint = new Paint();
@@ -56,13 +74,14 @@ class TileView extends View {
     private ObjectAnimator wiggle;
     private boolean selected, editing, pinned, hiddenApp;
 
-    TileView(Context ctx, Bitmap banner, float vw) {
+    TileView(Context ctx, Bitmap banner, float vw, Style style) {
         super(ctx);
         this.banner = banner;
         this.vw = vw;
-        this.radius = 1.4f * vw;
+        this.style = style;
+        this.radius = style.radius * vw;
         ringPaint.setStyle(Paint.Style.STROKE);
-        ringPaint.setStrokeWidth(.36f * vw); // trait centré sur le bord : la moitié intérieure (.18vw) reste visible
+        ringPaint.setStrokeWidth(2 * style.ring * vw); // trait centré sur le bord : la moitié intérieure reste visible
         ringPaint.setColor(0xFFFFFFFF);
         pinIcon = ctx.getDrawable(R.drawable.ic_pin);
         eyeIcon = ctx.getDrawable(R.drawable.ic_eye_off);
@@ -73,7 +92,7 @@ class TileView extends View {
             }
         });
         setClipToOutline(true);
-        setElevation(.5f * vw);
+        setElevation(style.elevation * vw);
     }
 
     @Override
@@ -116,20 +135,23 @@ class TileView extends View {
     }
 
     /** Appli épinglée / masquée (pastilles et grisé). */
-    void setFlags(boolean pinned, boolean hiddenApp) {
+    @Override
+    public void setFlags(boolean pinned, boolean hiddenApp) {
         this.pinned = pinned;
         this.hiddenApp = hiddenApp;
         setAlpha(hiddenApp ? .55f : 1f);
         invalidate();
     }
 
-    void setEditing(boolean on) {
+    @Override
+    public void setEditing(boolean on) {
         editing = on;
         updateTransform(false);
         invalidate();
     }
 
-    void setSelected(boolean on, boolean animate, boolean withShine) {
+    @Override
+    public void setSelected(boolean on, boolean animate, boolean withShine) {
         selected = on;
         if (ringAnim != null) ringAnim.cancel();
         if (!animate) {
@@ -147,7 +169,8 @@ class TileView extends View {
     /** Zoom de la tuile sélectionnée ; en édition, elle se soulève et se dandine. */
     private void updateTransform(boolean animate) {
         boolean wig = editing && selected;
-        float scale = wig ? 1.08f : selected ? 1.04f : 1f, dy = wig ? -1.2f * vw : 0;
+        float scale = wig ? style.editScale : selected ? style.focusScale : 1f, dy = wig ? style.editDy * vw : 0;
+        setTranslationZ(selected ? vw : 0); // la tuile sélectionnée passe devant ses voisines
         if (wig && wiggle == null) {
             wiggle = ObjectAnimator.ofFloat(this, View.ROTATION, -1.2f, 1.2f).setDuration(500);
             wiggle.setRepeatCount(ValueAnimator.INFINITE);

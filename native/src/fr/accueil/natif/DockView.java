@@ -27,6 +27,7 @@ class DockView extends FrameLayout {
     private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint highlight = new Paint();
     private Bitmap backdrop;
+    private int tint = 0x5C1A1C20; // rgba(26,28,32,.36) sur la photo floutée
     private int screenW;
 
     DockView(Context ctx, float radius) {
@@ -48,6 +49,12 @@ class DockView extends FrameLayout {
             }
         });
         setClipToOutline(true);
+    }
+
+    /** Teinte du verre (Ambient : sombre, sans photo derrière). */
+    void setTint(int color) {
+        tint = color;
+        invalidate();
     }
 
     void setScreenPosition(int left, int top, int width, int height, int screenWidth) {
@@ -80,7 +87,7 @@ class DockView extends FrameLayout {
     @Override
     protected void onDraw(Canvas c) {
         if (backdrop != null) c.drawBitmap(backdrop, src, bounds, glass);
-        c.drawColor(0x5C1A1C20);
+        c.drawColor(tint);
         c.drawRect(radius, 0, getWidth() - radius, 1, highlight); // liseré clair en haut
         c.drawRoundRect(bounds, radius, radius, edge);
     }

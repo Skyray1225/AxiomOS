@@ -24,9 +24,13 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * Fenêtre « Préférences » (thème Modern) : 6 cartes de thème avec aperçu, puis l'interrupteur
- * « Animations du décor ». ← → choisir, OK appliquer, ↑ ↓ naviguer, Retour fermer.
+ * Fenêtre « Préférences » : 6 cartes de thème avec aperçu, la ligne « Apparence de Minimal »
+ * (en Minimal seulement), puis l'interrupteur « Animations du décor ».
+ * ← → choisir, OK appliquer, ↑ ↓ naviguer, Retour fermer. Sombre, ou claire en Minimal clair.
  */
 class PrefsView extends FrameLayout {
 
@@ -34,21 +38,27 @@ class PrefsView extends FrameLayout {
         void applyTheme(String id);
         void setAnimations(boolean on);
         void closePrefs();
+        String minMode();
+        void cycleMinMode(int dir);
         Typeface font(int weight);
     }
 
     static final String[] THEMES = {"dessin", "photo", "bullit", "ambient", "minimal", "kids"};
     static final String[] NAMES = {"Thinking", "Modern", "Bullit", "Ambient", "Minimal", "Kids"};
-    static final String AVAILABLE = "photo"; // seul thème porté en natif pour l'instant
+    private static final String[][] MIN_MODES = {{"auto", "Auto"}, {"light", "Clair"}, {"dark", "Sombre"}};
 
     private final Host host;
     private final float vw;
     private final ThumbView[] thumbs = new ThumbView[6];
     private final LinearLayout[] cards = new LinearLayout[6];
-    private final LinearLayout sheet, animRow;
+    private final TextView[] checks = new TextView[6];
+    private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
+    private final LinearLayout sheet, animRow, darkRow;
+    private final TextView darkValue;
     private final SwitchView animSwitch;
-    private int row = 0, card = 1; // row 0 = thèmes, 1 = animations
+    private int row = 0, card = 1;
     private String theme = "photo";
+    private boolean light;
 
     PrefsView(Context ctx, Host host, float vw, boolean animOn) {
         super(ctx);
@@ -60,11 +70,6 @@ class PrefsView extends FrameLayout {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setClipChildren(false); // la carte sélectionnée se soulève
         box.setPadding(px(2.6f), px(2.2f), px(2.6f), px(1.7f));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF51A1C20);
-        bg.setCornerRadius(1.9f * vw);
-        bg.setStroke(1, 0x29FFFFFF);
-        box.setBackground(bg);
         box.setElevation(3 * vw);
         LayoutParams blp = new LayoutParams(px(58), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         addView(box, blp);
@@ -91,15 +96,14 @@ class PrefsView extends FrameLayout {
                 name.setOrientation(LinearLayout.HORIZONTAL);
                 name.setGravity(Gravity.CENTER_VERTICAL);
                 name.addView(text(NAMES[i], 1.15f, 500, 1f), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-                if (AVAILABLE.equals(THEMES[i])) {
-                    TextView check = text("✓", .9f, 600, 1f);
-                    check.setTextColor(0xFF1A1C20);
+                if (Theme.available(THEMES[i])) { // coche sur le thème actif
+                    TextView check = new TextView(ctx);
+                    check.setText("✓");
+                    check.setTextSize(TypedValue.COMPLEX_UNIT_PX, .9f * vw);
+                    check.setTypeface(host.font(600));
+                    check.setIncludeFontPadding(false);
                     check.setGravity(Gravity.CENTER);
-                    GradientDrawable cb = new GradientDrawable();
-                    cb.setShape(GradientDrawable.OVAL);
-                    cb.setColor(0xFFFFFFFF);
-                    check.setBackground(cb);
-                    check.setTag("check");
+                    checks[i] = check;
                     name.addView(check, new LinearLayout.LayoutParams(px(1.5f), px(1.5f)));
                 } else {
                     name.addView(text("bientôt", .9f, 500, .55f));
@@ -118,40 +122,75 @@ class PrefsView extends FrameLayout {
         }
 
         box.addView(section("Affichage"), lp(0, 0, 0, px(.9f)));
-        animRow = new LinearLayout(ctx);
-        animRow.setOrientation(LinearLayout.HORIZONTAL);
-        animRow.setGravity(Gravity.CENTER_VERTICAL);
-        animRow.setPadding(px(1.3f), px(1), px(1.3f), px(1));
-        LinearLayout labels = new LinearLayout(ctx);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        labels.addView(text("Animations du décor", 1.25f, 400, 1f));
-        labels.addView(text("Lueur sur l'appli sélectionnée", .9f, 400, .55f), lp(0, px(.2f), 0, 0));
-        animRow.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        darkRow = row("Apparence de Minimal", "Auto suit le jour et la nuit");
+        darkValue = text("", 1.25f, 500, 1f);
+        LinearLayout val = new LinearLayout(ctx);
+        val.setGravity(Gravity.CENTER_VERTICAL);
+        TextView lt = text("‹", 1.25f, 400, .5f), gt = text("›", 1.25f, 400, .5f);
+        val.addView(lt);
+        LinearLayout.LayoutParams vl = lp(px(.9f), 0, px(.9f), 0);
+        val.addView(darkValue, vl);
+        val.addView(gt);
+        darkRow.addView(val);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.bottomMargin = px(.5f);
+        box.addView(darkRow, dlp);
+
+        animRow = row("Animations du décor", "Lueur sur l'appli sélectionnée");
         animSwitch = new SwitchView(ctx, vw, animOn);
         animRow.addView(animSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
         box.addView(animRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView hint = text("← → choisir · OK appliquer · ↑ ↓ naviguer · Retour fermer", .95f, 400, .55f);
         hint.setGravity(Gravity.CENTER);
-        box.addView(hint, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) {{
-            topMargin = px(1.4f);
-        }});
+        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hl.topMargin = px(1.4f);
+        box.addView(hint, hl);
+        setLight(false);
     }
 
-    /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo affichée. */
+    /** Une ligne réglable : libellé, explication en petit, valeur à droite. */
+    private LinearLayout row(String label, String small) {
+        LinearLayout r = new LinearLayout(getContext());
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(px(1.3f), px(1), px(1.3f), px(1));
+        LinearLayout labels = new LinearLayout(getContext());
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(label, 1.25f, 400, 1f));
+        labels.addView(text(small, .9f, 400, .55f), lp(0, px(.2f), 0, 0));
+        r.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        return r;
+    }
+
+    /** Rangées du bas : « apparence » (en Minimal seulement), puis animations. */
+    private String[] rows() {
+        return "minimal".equals(theme) ? new String[]{"themes", "dark", "anim"} : new String[]{"themes", "anim"};
+    }
+
+    /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
     void open(String currentTheme, Bitmap photoMini, String clock) {
         theme = currentTheme;
         row = 0;
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : null);
+        darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
         render(false);
     }
 
     /** Ouverture : le voile apparaît en fondu, la carte monte légèrement en grandissant. */
-    void show() {
+    void show(boolean animate) {
         animate().cancel();
         sheet.animate().cancel();
         setVisibility(VISIBLE);
+        if (!animate) {
+            setAlpha(1);
+            sheet.setAlpha(1);
+            sheet.setScaleX(1);
+            sheet.setScaleY(1);
+            sheet.setTranslationY(0);
+            return;
+        }
         setAlpha(0);
         sheet.setAlpha(0);
         sheet.setScaleX(.96f);
@@ -174,7 +213,31 @@ class PrefsView extends FrameLayout {
         animSwitch.set(on);
     }
 
+    /** Version claire (Minimal clair) ou sombre (tous les autres cas), comme dans la version web. */
+    void setLight(boolean l) {
+        light = l;
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(l ? 0xF7FAFAF8 : 0xF51A1C20);
+        bg.setCornerRadius(1.9f * vw);
+        bg.setStroke(1, l ? 0xB3FFFFFF : 0x29FFFFFF);
+        sheet.setBackground(bg);
+        int fg = l ? 0xFF1E2A24 : 0xFFFFFFFF;
+        for (TextView t : texts) t.setTextColor(fg);
+        for (TextView c : checks) {
+            if (c == null) continue;
+            GradientDrawable cb = new GradientDrawable();
+            cb.setShape(GradientDrawable.OVAL);
+            cb.setColor(l ? 0xFF1E2A24 : 0xFFFFFFFF);
+            c.setBackground(cb);
+            c.setTextColor(l ? 0xFFFFFFFF : 0xFF1A1C20);
+        }
+        animSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
+        for (ThumbView t : thumbs) t.setRingColor(l ? 0xE61E2A24 : 0xFFFFFFFF);
+        render(false);
+    }
+
     boolean onKey(int keyCode) {
+        String[] rows = rows();
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
                 if (row > 0) row--;
@@ -182,18 +245,20 @@ class PrefsView extends FrameLayout {
                 break;
             case KeyEvent.KEYCODE_DPAD_DOWN:
                 if (row == 0 && card < 3) card += 3;
-                else row = 1;
+                else row = Math.min(rows.length - 1, row + 1);
                 break;
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 int d = keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1;
                 if (row == 0) card = Math.max(0, Math.min(5, card + d));
+                else if ("dark".equals(rows[row])) host.cycleMinMode(d);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (row == 0) host.applyTheme(THEMES[card]);
+                else if ("dark".equals(rows[row])) host.cycleMinMode(1);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_BACK:
@@ -208,22 +273,33 @@ class PrefsView extends FrameLayout {
     }
 
     private void render(boolean animate) {
+        String[] rows = rows();
         for (int i = 0; i < 6; i++) {
             boolean sel = row == 0 && i == card;
             thumbs[i].setSel(sel);
             float dy = sel ? -.5f * vw : 0;
             if (animate) cards[i].animate().translationY(dy).setDuration(350).setInterpolator(MainActivity.EASE);
             else cards[i].setTranslationY(dy);
+            if (checks[i] != null) checks[i].setVisibility(THEMES[i].equals(theme) ? VISIBLE : INVISIBLE);
         }
+        String mode = host.minMode();
+        for (String[] m : MIN_MODES) if (m[0].equals(mode)) darkValue.setText(m[1]);
+        darkRow.setBackground(rowBg("dark".equals(rows[row])));
+        animRow.setBackground(rowBg("anim".equals(rows[row])));
+    }
+
+    private GradientDrawable rowBg(boolean sel) {
         GradientDrawable rb = new GradientDrawable();
         rb.setCornerRadius(vw);
-        if (row == 1) {
+        if (!sel) rb.setColor(0);
+        else if (light) {
+            rb.setColor(0xFFFFFFFF);
+            rb.setStroke(px(.14f), 0xD91E2A24);
+        } else {
             rb.setColor(0x21FFFFFF);
             rb.setStroke(px(.14f), 0xFFFFFFFF);
-        } else {
-            rb.setColor(0);
         }
-        animRow.setBackground(rb);
+        return rb;
     }
 
     /* ===== Outils ===== */
@@ -240,6 +316,7 @@ class PrefsView extends FrameLayout {
         t.setTextColor(0xFFFFFFFF);
         t.setAlpha(alpha);
         t.setIncludeFontPadding(false);
+        texts.add(t);
         return t;
     }
 
@@ -262,6 +339,12 @@ class PrefsView extends FrameLayout {
         private final float vw;
         boolean on;
         private float pos;
+        private int offColor = 0x40FFFFFF;
+
+        void setOffColor(int c) {
+            offColor = c;
+            invalidate();
+        }
 
         SwitchView(Context ctx, float vw, boolean on) {
             super(ctx);
@@ -285,7 +368,7 @@ class PrefsView extends FrameLayout {
         @Override
         protected void onDraw(Canvas c) {
             float w = getWidth(), h = getHeight();
-            track.setColor(blend(0x40FFFFFF, 0xFF2F8A5B, pos));
+            track.setColor(blend(offColor, 0xFF2F8A5B, pos));
             c.drawRoundRect(0, 0, w, h, h / 2, h / 2, track);
             float r = .75f * vw, x = .2f * vw + r + pos * 1.5f * vw;
             c.drawCircle(x, h / 2, r, knob);
@@ -333,6 +416,11 @@ class PrefsView extends FrameLayout {
         void set(String clock, Bitmap photo) {
             this.clock = clock;
             this.photo = photo;
+            invalidate();
+        }
+
+        void setRingColor(int c) {
+            ring.setColor(c);
             invalidate();
         }
 

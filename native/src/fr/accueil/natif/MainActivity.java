@@ -45,9 +45,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Prototype natif de l'accueil, thème Modern : décor (SceneView), dock (favoris puis tri par usage),
- * mode édition (appui long sur OK), barre du haut (Préférences, Paramètres), fenêtre Préférences,
- * veille après 1 min sans activité et intro AxiomOS.
+ * Accueil natif : décor selon le thème (SceneView), dock en carrousel (Modern, Ambient), en grille
+ * (Bullit) ou en liste (Minimal), favoris puis tri par usage, mode édition (appui long sur OK),
+ * barre du haut (Préférences, Paramètres), fenêtre Préférences, veille après 1 min et intro AxiomOS.
+ * Changer de thème reconstruit l'écran (recreate), la fenêtre Préférences restant ouverte.
  * Tests : am start -n fr.accueil.natif/.MainActivity [--ef heure 21.5] [--ez intro true] [--ez veille true]
  */
 public class MainActivity extends Activity implements PrefsView.Host {
@@ -82,7 +83,13 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private final Map<String, Bitmap> bannerCache = new ConcurrentHashMap<>();
     private Store store;
 
+    private Theme theme;
     private int W, H, tileW, tileH, gap, pad, dockW, dockH, dockLeft, dockTop;
+    private int itemW, itemH, stepX, stepY, rowsVisible; // grille et liste
+    private FrameLayout area;      // zone de la grille ou de la liste
+    private AmbientHero hero;      // vitrine d'Ambient
+    private final Map<String, float[][]> palettes = new ConcurrentHashMap<>();
+    private final Map<String, Bitmap> heroCache = new ConcurrentHashMap<>();
     private float vw, vh;
     private SceneView scene;
     private IntroView intro;
@@ -96,7 +103,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     private List<App> allApps = new ArrayList<>(); // toutes les applis, ordre du système
     private List<App> shown = new ArrayList<>();   // celles du dock, dans l'ordre affiché
-    private final List<TileView> tiles = new ArrayList<>();
+    private final List<DockItem> tiles = new ArrayList<>();
     private int focus = 0, offset = 0;
     private boolean editing, onTop, prefsOpen, topOnGear = true;
     private boolean okDown, okLong, swallowUp;
@@ -110,6 +117,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         long t0 = System.nanoTime();
         super.onCreate(savedInstanceState);
         store = new Store(this);
+        theme = Theme.of(store.theme);
         Point size = new Point();
         getWindowManager().getDefaultDisplay().getRealSize(size);
         W = size.x;
@@ -123,8 +131,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
         root.setFocusable(true);
         root.setFocusableInTouchMode(true);
         root.setDefaultFocusHighlightEnabled(false);
-        // Décor : photo, vignettage la nuit, salutation, heure et date
-        scene = new SceneView(this, W, H);
+        // Décor du thème : fond, salutation, heure, date et météo
+        scene = new SceneView(this, W, H, theme, store);
         scene.forcedHour = getIntent().getFloatExtra("heure", Float.NaN);
         root.addView(scene, match());
 
@@ -136,8 +144,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
         bar.setClipToPadding(false); // sinon la marge intérieure sert de zone de découpe
         prefsBtn = new PillButton(R.drawable.ic_prefs, "Préférences");
         gearBtn = new PillButton(R.drawable.ic_gear, "Paramètres");
-        bar.addView(prefsBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(2.5f)));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(2.5f));
+        int bh = theme == Theme.MINIMAL ? ViewGroup.LayoutParams.WRAP_CONTENT : px(2.5f);
+        bar.addView(prefsBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, bh));
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, bh);
         glp.leftMargin = px(1.2f);
         bar.addView(gearBtn, glp);
         FrameLayout.LayoutParams blp = wrap(Gravity.TOP | Gravity.RIGHT);
@@ -145,33 +154,56 @@ public class MainActivity extends Activity implements PrefsView.Host {
         blp.rightMargin = px(3) - bp;
         root.addView(bar, blp);
 
-        // Dock : 5 tuiles visibles
         tileW = px(15.5f);
         tileH = Math.round(tileW * 9 / 16f);
         gap = px(1.6f);
         pad = px(1.6f);
-        dock = new DockView(this, 2.6f * vw);
-        dock.setElevation(2 * vw);
-        track = new FrameLayout(this);
-        track.setClipChildren(false);
-        FrameLayout.LayoutParams trp = new FrameLayout.LayoutParams(tileW, tileH);
-        trp.leftMargin = pad;
-        trp.topMargin = pad;
-        dock.addView(track, trp);
-        root.addView(dock, new FrameLayout.LayoutParams(0, 0));
-
-        // Nom de l'appli sélectionnée, au-dessus du dock
         title = text(2.7f * vw, 300, 0, false);
         title.setShadowLayer(.8f * vw, 0, 2, 0x66000000);
-        root.addView(title, wrap(Gravity.BOTTOM | Gravity.LEFT));
-        layoutDock(VISIBLE);
+        if (theme == Theme.AMBIENT) { // vitrine : à droite, sous la barre du haut
+            int hw = px(40), hh = Math.round(hw * 9 / 16f);
+            hero = new AmbientHero(this, vw, hw, hh);
+            FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(hw, hh * 2 + px(1.2f), Gravity.TOP | Gravity.RIGHT);
+            hl.rightMargin = px(7);
+            hl.topMargin = Math.round(17 * vh);
+            root.addView(hero, hl);
+        }
+        if (theme.dock == Theme.CAROUSEL) {
+            // Dock : 5 tuiles visibles, en verre (Modern : photo floutée derrière ; Ambient : teinte sombre)
+            dock = new DockView(this, 2.6f * vw);
+            if (theme == Theme.AMBIENT) dock.setTint(0x80121418);
+            dock.setElevation(2 * vw);
+            track = new FrameLayout(this);
+            track.setClipChildren(false);
+            FrameLayout.LayoutParams trp = new FrameLayout.LayoutParams(tileW, tileH);
+            trp.leftMargin = pad;
+            trp.topMargin = pad;
+            dock.addView(track, trp);
+            root.addView(dock, new FrameLayout.LayoutParams(0, 0));
+            // Nom de l'appli sélectionnée, au-dessus du dock
+            root.addView(title, wrap(Gravity.BOTTOM | Gravity.LEFT));
+            layoutDock(VISIBLE);
+        } else {
+            buildArea(root);
+        }
 
-        // Aide du mode édition, au-dessus du dock
+        // Aide du mode édition : au-dessus du dock, ou en haut pour la grille et la liste
         hint = buildHint();
-        FrameLayout.LayoutParams hlp = wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        hlp.bottomMargin = Math.round(6 * vh) + tileH + px(5.5f);
+        FrameLayout.LayoutParams hlp;
+        if (theme == Theme.BULLIT) {
+            hlp = wrap(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            hlp.topMargin = Math.round(6.5f * vh);
+        } else if (theme == Theme.MINIMAL) {
+            hlp = wrap(Gravity.TOP | Gravity.LEFT);
+            hlp.topMargin = Math.round(5 * vh);
+            hlp.leftMargin = px(56);
+        } else {
+            hlp = wrap(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            hlp.bottomMargin = Math.round(6 * vh) + tileH + px(5.5f);
+        }
         hint.setAlpha(0);
         hint.setTranslationY(vw);
+        hint.setElevation(3 * vw);
         root.addView(hint, hlp);
 
         // Message bref au centre de l'écran
@@ -198,12 +230,16 @@ public class MainActivity extends Activity implements PrefsView.Host {
         root.addView(intro, match());
 
         setContentView(root);
-        scene.setPhotoListener(dock::setBackdrop);
+        if (theme == Theme.MODERN) scene.setPhotoListener(dock::setBackdrop);
+        scene.setInkListener(this::onInk);
         scene.showNow();
+        onInk(scene.ink(), scene.inkSoft(), scene.isDark());
         loadApps();
 
         Intent in = getIntent();
-        if (in.getBooleanExtra("veille", false)) setSaverPreview(true);
+        if (savedInstanceState != null && savedInstanceState.getBoolean("prefs")) { // après un changement de thème
+            ui.post(() -> openPrefs(false));
+        } else if (in.getBooleanExtra("veille", false)) setSaverPreview(true);
         else if (in.getBooleanExtra("intro", false) || (isDefaultHome() ? bootIntroDue() : savedInstanceState == null)) {
             // Accueil par défaut : une fois par démarrage de la box. Sinon (essais) : à chaque lancement à froid.
             intro.play(in.getIntExtra("introDelay", 500));
@@ -217,6 +253,12 @@ public class MainActivity extends Activity implements PrefsView.Host {
         }
         hideSystemUi();
         Log.i(TAG, "onCreate " + (System.nanoTime() - t0) / 1000000 + " ms");
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putBoolean("prefs", prefsOpen);
     }
 
     @Override
@@ -359,6 +401,11 @@ public class MainActivity extends Activity implements PrefsView.Host {
             else if (k == KeyEvent.KEYCODE_DPAD_LEFT) moveApp(-1);
             else if (k == KeyEvent.KEYCODE_DPAD_DOWN) toggleHidden();
             else togglePin();
+        } else if (theme.dock != Theme.CAROUSEL && !onTop && k == KeyEvent.KEYCODE_DPAD_UP && focus >= theme.columns) {
+            focusOn(focus - theme.columns); // grille ou liste : rangée du dessus
+        } else if (theme.dock != Theme.CAROUSEL && !onTop && k == KeyEvent.KEYCODE_DPAD_DOWN) {
+            int c = theme.columns;
+            if (focus / c < (tiles.size() - 1) / c) focusOn(Math.min(tiles.size() - 1, focus + c));
         } else if (k == KeyEvent.KEYCODE_DPAD_UP) {
             if (!onTop) selectTop(true);
         } else if (k == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -381,7 +428,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     private static final int IDLE_MS = 60 * 1000;
     private final Runnable goIdle = () -> {
-        if (!editing && !prefsOpen && !intro.isPlaying()) setIdle(true);
+        if (theme.idle && !editing && !prefsOpen && !intro.isPlaying()) setIdle(true);
     };
 
     /** Relance le compte à rebours de la veille ; vrai si l'accueil était en veille. */
@@ -396,6 +443,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private void setIdle(boolean on) {
         idle = on;
         dock.animate().alpha(on ? 0 : 1).translationY(on ? 3 * vw : 0).setDuration(1200).setInterpolator(EASE);
+        if (hero != null) hero.animate().alpha(on ? 0 : 1).setDuration(1200);
         bar.animate().alpha(on ? 0 : 1).setDuration(600);
         title.animate().alpha(on || editing ? 0 : 1).setDuration(on ? 600 : 150);
         scene.setIdle(on, true);
@@ -403,21 +451,15 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     /** Aperçu de l'économiseur d'écran (test : --ez veille true) ; une touche le referme. */
     private void setSaverPreview(boolean on) {
-        saverPreview = on;
-        ui.removeCallbacks(goIdle);
-        int v = on ? View.GONE : View.VISIBLE;
-        dock.setVisibility(v);
-        bar.setVisibility(v);
-        title.setVisibility(v);
-        scene.setIdle(on, false);
-        if (!on) {
-            idle = false;
-            dock.setAlpha(1);
-            dock.setTranslationY(0);
-            bar.setAlpha(1);
-            title.setAlpha(editing ? 0 : 1);
-            wake();
+        if (!on) { // l'économiseur change la mise en page de l'heure : on reconstruit l'écran
+            saverPreview = false;
+            recreate();
+            return;
         }
+        saverPreview = true;
+        ui.removeCallbacks(goIdle);
+        for (View v : new View[]{dock, area, bar, title, hero, hint}) if (v != null) v.setVisibility(View.GONE);
+        scene.setSaver();
     }
 
     /* ===== Intro AxiomOS ===== */
@@ -585,37 +627,111 @@ public class MainActivity extends Activity implements PrefsView.Host {
         dock.setScreenPosition(dockLeft, dockTop, dockW, dockH, W);
     }
 
+    /**
+     * Grille (Bullit) : 6 colonnes de 17 % de la hauteur jusqu'en bas ; liste (Minimal) : à droite,
+     * de 13 % à 94 % de la hauteur. Défilement vertical par rangée.
+     */
+    private void buildArea(FrameLayout root) {
+        area = new FrameLayout(this);
+        FrameLayout.LayoutParams al;
+        int pl, pt, pr, pb;
+        if (theme == Theme.BULLIT) {
+            al = new FrameLayout.LayoutParams(W - px(4), H - Math.round(17 * vh));
+            al.leftMargin = px(2);
+            al.topMargin = Math.round(17 * vh);
+            pl = pr = pt = px(1.4f);
+            pb = Math.round(3 * vh);
+            int g = px(1.6f), inner = W - px(4) - pl - pr;
+            itemW = (inner - 5 * g) / 6;
+            itemH = Math.round(itemW * 9 / 16f);
+            stepX = itemW + g;
+            stepY = itemH + g;
+        } else {
+            al = new FrameLayout.LayoutParams(W - px(56) - px(5), H - Math.round(13 * vh) - Math.round(6 * vh));
+            al.leftMargin = px(56);
+            al.topMargin = Math.round(13 * vh);
+            pl = pr = px(2);
+            pt = pb = px(.6f);
+            itemW = al.width - pl - pr - px(1.4f); // la ligne sélectionnée glisse de 1,4vw vers la droite
+            itemH = px(4.4f);
+            stepX = 0;
+            stepY = itemH + px(.2f);
+        }
+        rowsVisible = Math.max(1, (int) ((al.height - .03f * H) / stepY));
+        area.setPadding(pl, pt, pr, pb);
+        area.setClipToPadding(false); // la tuile sélectionnée grossit dans la marge
+        track = new FrameLayout(this);
+        track.setClipChildren(false);
+        area.addView(track, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(area, al);
+    }
+
     private void buildDock(String keepPkg) {
         shown = visibleApps();
-        layoutDock(shown.size());
+        if (theme.dock == Theme.CAROUSEL) layoutDock(shown.size());
         track.removeAllViews();
         tiles.clear();
-        int step = tileW + gap;
+        int cols = theme.columns;
         for (int i = 0; i < shown.size(); i++) {
             App a = shown.get(i);
-            TileView t = new TileView(this, a.banner, vw);
+            View v;
+            FrameLayout.LayoutParams lp;
+            if (theme.dock == Theme.LIST) {
+                v = new ListRow(this, a.label, vw, scene.ink(), scene.inkSoft());
+                lp = new FrameLayout.LayoutParams(itemW, itemH);
+                lp.topMargin = i * stepY;
+            } else if (theme.dock == Theme.GRID) {
+                v = new TileView(this, a.banner, vw, TileView.GRID);
+                lp = new FrameLayout.LayoutParams(itemW, itemH);
+                lp.leftMargin = (i % cols) * stepX;
+                lp.topMargin = (i / cols) * stepY;
+            } else {
+                v = new TileView(this, a.banner, vw, TileView.CAROUSEL);
+                lp = new FrameLayout.LayoutParams(tileW, tileH);
+                lp.leftMargin = i * (tileW + gap);
+            }
+            DockItem t = (DockItem) v;
             t.setFlags(store.pins.contains(a.pkg), store.hidden.contains(a.pkg));
             t.setEditing(editing);
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(tileW, tileH);
-            lp.leftMargin = i * step;
-            track.addView(t, lp);
+            track.addView(v, lp);
             tiles.add(t);
         }
         ViewGroup.LayoutParams tp = track.getLayoutParams();
-        tp.width = Math.max(tileW, shown.size() * step - gap);
+        if (theme.dock == Theme.CAROUSEL) {
+            tp.width = Math.max(tileW, shown.size() * (tileW + gap) - gap);
+        } else {
+            tp.height = Math.max(itemH, ((shown.size() + cols - 1) / cols) * stepY);
+        }
         track.setLayoutParams(tp);
         if (tiles.isEmpty()) return;
 
         int f = -1;
         for (int i = 0; i < shown.size(); i++) if (shown.get(i).pkg.equals(keepPkg)) f = i;
         focus = f >= 0 ? f : Math.min(focus, tiles.size() - 1);
-        offset = Math.min(offset, Math.max(0, tiles.size() - VISIBLE));
-        if (focus < offset) offset = focus;
-        if (focus > offset + VISIBLE - 1) offset = focus - VISIBLE + 1;
         track.animate().cancel();
-        track.setTranslationX(-offset * step);
+        scrollTo(false);
         tiles.get(focus).setSelected(!onTop, false, false);
         title.setText(shown.get(focus).label);
+        if (hero != null) ambientFor(focus, true);
+    }
+
+    /** Fait défiler le dock pour que l'élément sélectionné soit visible. */
+    private void scrollTo(boolean animate) {
+        if (theme.dock == Theme.CAROUSEL) {
+            offset = Math.min(offset, Math.max(0, tiles.size() - VISIBLE));
+            if (focus < offset) offset = focus;
+            if (focus > offset + VISIBLE - 1) offset = focus - VISIBLE + 1;
+            float x = -offset * (tileW + gap);
+            if (animate) track.animate().translationX(x).setDuration(300).setInterpolator(EASE);
+            else track.setTranslationX(x);
+        } else {
+            int row = focus / theme.columns;
+            if (row < offset) offset = row;
+            if (row > offset + rowsVisible - 1) offset = row - rowsVisible + 1;
+            float y = -offset * stepY;
+            if (animate) track.animate().translationY(y).setDuration(300).setInterpolator(EASE);
+            else track.setTranslationY(y);
+        }
     }
 
     private void focusOn(int i) {
@@ -625,10 +741,72 @@ public class MainActivity extends Activity implements PrefsView.Host {
         tiles.get(focus).setSelected(false, true, false);
         focus = i;
         tiles.get(focus).setSelected(true, true, store.animations);
-        if (focus < offset) offset = focus;
-        if (focus > offset + VISIBLE - 1) offset = focus - VISIBLE + 1;
-        track.animate().translationX(-offset * (tileW + gap)).setDuration(300).setInterpolator(EASE);
-        showTitle(shown.get(focus).label);
+        scrollTo(true);
+        if (theme.title) showTitle(shown.get(focus).label);
+        if (hero != null) ambientFor(focus, false);
+    }
+
+    /* ===== Ambient : couleurs et vitrine de l'appli sélectionnée ===== */
+
+    private final Runnable ambientLater = () -> ambientFor(focus, true);
+
+    /** Couleurs et vitrine ; attend 140 ms sans nouvelle touche (une touche maintenue ne recalcule rien). */
+    private void ambientFor(int i, boolean now) {
+        ui.removeCallbacks(ambientLater);
+        if (!now) {
+            ui.postDelayed(ambientLater, 140);
+            return;
+        }
+        if (i >= shown.size()) return;
+        final App a = shown.get(i);
+        float[][] pal = palettes.get(a.pkg);
+        if (pal == null) {
+            pal = AmbientView.palette(a.banner);
+            palettes.put(a.pkg, pal);
+        }
+        scene.ambient().show(a.pkg, pal, false);
+        final int glow = AmbientView.hsl(pal[0][0], pal[0][1], .5f, 1);
+        final boolean first = heroCache.isEmpty();
+        Bitmap hi = heroCache.get(a.pkg);
+        if (hi != null) {
+            hero.show(hi, glow, false);
+            return;
+        }
+        worker.execute(() -> { // bannière en grand, dessinée une fois par appli
+            Bitmap b = bannerHi(a);
+            if (b != null) heroCache.put(a.pkg, b);
+            ui.post(() -> {
+                if (focus < shown.size() && shown.get(focus) == a) hero.show(b, glow, first);
+            });
+        });
+    }
+
+    private Bitmap bannerHi(App a) {
+        try {
+            PackageManager pm = getPackageManager();
+            Drawable d = pm.getActivityBanner(new android.content.ComponentName(a.pkg, a.cls));
+            if (d == null) d = pm.getApplicationBanner(a.pkg);
+            if (d == null) return null;
+            int w = px(40), h = Math.round(w * 9 / 16f);
+            Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, w, h);
+            d.draw(new Canvas(bmp));
+            return bmp;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Minimal : couleurs du texte (clair ou sombre) répercutées sur la liste, la barre et l'aide. */
+    private void onInk(int ink, int inkSoft, boolean dark) {
+        if (theme != Theme.MINIMAL) return;
+        for (DockItem t : tiles) ((ListRow) t).setInk(ink, inkSoft);
+        if (prefsBtn != null) {
+            prefsBtn.setInk(ink);
+            gearBtn.setInk(ink);
+        }
+        if (hint != null) styleHint(hint, !dark);
+        if (prefs != null) prefs.setLight(!dark);
     }
 
     private void showTitle(final String name) {
@@ -662,7 +840,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
         if (on && onTop) leaveTop();
         buildDock(keep);
         hint.animate().alpha(on ? 1 : 0).translationY(on ? 0 : vw).setDuration(on ? 500 : 400).setInterpolator(EASE);
-        title.animate().alpha(on ? 0 : 1).setDuration(150);
+        // Grille et liste : l'aide s'affiche en haut, à la place de la barre
+        if (theme.dock != Theme.CAROUSEL) bar.animate().alpha(on ? 0 : 1).setDuration(300);
+        if (theme.title) title.animate().alpha(on ? 0 : 1).setDuration(150);
     }
 
     /** Déplacer une appli l'épingle (elle quitte le tri automatique). */
@@ -727,11 +907,19 @@ public class MainActivity extends Activity implements PrefsView.Host {
     /* ===== Préférences ===== */
 
     private void openPrefs() {
+        openPrefs(true);
+    }
+
+    private void openPrefs(boolean animate) {
         prefsOpen = true;
+        onTop = false;
         gearBtn.setFocus(false);
         prefsBtn.setFocus(false);
-        prefs.open("photo", scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), SceneView.clockText());
-        prefs.show();
+        if (!tiles.isEmpty()) tiles.get(focus).setSelected(false, false, false);
+        ui.removeCallbacks(goIdle);
+        prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), SceneView.clockText());
+        prefs.setLight(theme == Theme.MINIMAL && !scene.isDark());
+        prefs.show(animate);
     }
 
     @Override
@@ -739,13 +927,34 @@ public class MainActivity extends Activity implements PrefsView.Host {
         prefsOpen = false;
         prefs.hide();
         selectTop(false);
+        wake();
     }
 
     @Override
     public void applyTheme(String id) {
-        if (PrefsView.AVAILABLE.equals(id)) return;
-        String name = PrefsView.NAMES[Arrays.asList(PrefsView.THEMES).indexOf(id)];
-        showToast("« " + name + " » arrive bientôt dans la version native");
+        if (!Theme.available(id)) {
+            String name = PrefsView.NAMES[Arrays.asList(PrefsView.THEMES).indexOf(id)];
+            showToast("« " + name + " » arrive bientôt dans la version native");
+            return;
+        }
+        if (id.equals(theme.id)) return;
+        store.theme = id;
+        store.saveTheme();
+        recreate(); // l'écran est reconstruit pour le nouveau thème, Préférences toujours ouvertes
+    }
+
+    @Override
+    public String minMode() {
+        return store.minMode;
+    }
+
+    @Override
+    public void cycleMinMode(int dir) {
+        String[] modes = {"auto", "light", "dark"};
+        int i = Arrays.asList(modes).indexOf(store.minMode);
+        store.minMode = modes[(i + dir + 3) % 3];
+        store.saveMinMode();
+        scene.applyInk(true);
     }
 
     @Override
@@ -766,31 +975,59 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     /* ===== Éléments d'interface ===== */
 
-    /** Bouton en pilule de la barre du haut : icône et libellé, contour blanc quand il est sélectionné. */
+    /**
+     * Bouton de la barre du haut : pilule avec icône et libellé (contour blanc quand il est sélectionné) ;
+     * en Minimal, simple libellé en capitales, souligné quand il est sélectionné.
+     */
     private class PillButton extends LinearLayout {
-        PillButton(int icon, String label) {
+        private final TextView label;
+        private int ink = Color.WHITE;
+
+        PillButton(int icon, String text) {
             super(MainActivity.this);
             setOrientation(HORIZONTAL);
             setGravity(Gravity.CENTER_VERTICAL);
-            setPadding(px(1.2f), 0, px(1.2f), 0);
-            ImageView iv = new ImageView(MainActivity.this);
-            iv.setImageResource(icon);
-            addView(iv, new LayoutParams(px(1.15f), px(1.15f)));
-            TextView t = new TextView(MainActivity.this);
-            t.setText(label);
-            t.setTextSize(TypedValue.COMPLEX_UNIT_PX, .95f * vw);
-            t.setTypeface(font(500));
-            t.setLetterSpacing(.02f);
-            t.setTextColor(Color.WHITE);
-            t.setIncludeFontPadding(false);
-            LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            tlp.leftMargin = px(.55f);
-            addView(t, tlp);
+            boolean min = theme == Theme.MINIMAL;
+            label = new TextView(MainActivity.this);
+            label.setText(text);
+            label.setTypeface(font(500));
+            label.setTextColor(Color.WHITE);
+            label.setIncludeFontPadding(false);
+            if (min) {
+                setPadding(px(.4f), px(.3f), px(.4f), px(.3f));
+                label.setTextSize(TypedValue.COMPLEX_UNIT_PX, vw);
+                label.setLetterSpacing(.18f);
+                label.setAllCaps(true);
+                addView(label);
+            } else {
+                setPadding(px(1.2f), 0, px(1.2f), 0);
+                ImageView iv = new ImageView(MainActivity.this);
+                iv.setImageResource(icon);
+                addView(iv, new LayoutParams(px(1.15f), px(1.15f)));
+                label.setTextSize(TypedValue.COMPLEX_UNIT_PX, .95f * vw);
+                label.setLetterSpacing(.02f);
+                LayoutParams tlp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                tlp.leftMargin = px(.55f);
+                addView(label, tlp);
+            }
             setFocus(false);
         }
 
+        void setInk(int color) {
+            ink = color;
+            label.setTextColor(color);
+        }
+
         void setFocus(boolean on) {
-            setBackground(rounded(on ? 0x42FFFFFF : 0x24FFFFFF, 99 * vw, on ? px(.14f) : 1, on ? 0xFFFFFFFF : 0x33FFFFFF));
+            if (theme == Theme.MINIMAL) {
+                label.setPaintFlags(on ? label.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                        : label.getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+                animate().alpha(on ? 1 : .45f).setDuration(350);
+                return;
+            }
+            boolean b = theme == Theme.BULLIT;
+            int bg = on ? (b ? 0x3DFFFFFF : 0x42FFFFFF) : (b ? 0x1AFFFFFF : 0x24FFFFFF);
+            setBackground(rounded(bg, 99 * vw, on ? px(.14f) : 1, on ? 0xFFFFFFFF : (b ? 0x29FFFFFF : 0x33FFFFFF)));
             animate().alpha(on ? 1 : .9f).scaleX(on ? 1.06f : 1).scaleY(on ? 1.06f : 1).setDuration(350).setInterpolator(EASE);
         }
     }
@@ -800,10 +1037,6 @@ public class MainActivity extends Activity implements PrefsView.Host {
         LinearLayout h = new LinearLayout(this);
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(px(1.6f), px(.7f), px(1.6f), px(.7f));
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0x8C3A3D44, 0x8C1A1C20});
-        bg.setCornerRadius(99 * vw);
-        bg.setStroke(1, 0x66FFFFFF);
-        h.setBackground(bg);
         String[][] parts = {{"← →", "Déplacer"}, {"↑", "Épingler"}, {"↓", "Masquer"}, {"OK", "Terminer"}};
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) {
@@ -826,7 +1059,25 @@ public class MainActivity extends Activity implements PrefsView.Host {
             ll.leftMargin = px(.8f);
             h.addView(lbl, ll);
         }
+        styleHint(h, theme == Theme.MINIMAL && !scene.isDark());
         return h;
+    }
+
+    /** Aide sombre (texte blanc) ou claire (texte foncé, pour Minimal clair). */
+    private void styleHint(LinearLayout h, boolean light) {
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                light ? new int[]{0xE6FFFFFF, 0xCCFFFFFF} : new int[]{0x8C3A3D44, 0x8C1A1C20});
+        bg.setCornerRadius(99 * vw);
+        bg.setStroke(1, light ? 0x26151515 : 0x66FFFFFF);
+        h.setBackground(bg);
+        int fg = light ? 0xFF151515 : Color.WHITE;
+        for (int i = 0; i < h.getChildCount(); i++) {
+            View c = h.getChildAt(i);
+            if (c instanceof TextView) {
+                ((TextView) c).setTextColor(fg);
+                if (c.getBackground() != null) c.setBackground(rounded(light ? 0x1A151515 : 0x59FFFFFF, .4f * vw, 0, 0));
+            } else c.setBackground(rounded(light ? 0x66151515 : 0x66FFFFFF, vw, 0, 0));
+        }
     }
 
     /* ===== Outils d'affichage ===== */
