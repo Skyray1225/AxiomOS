@@ -2,14 +2,19 @@ package fr.accueil.natif;
 
 import android.animation.TimeInterpolator;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Point;
+import android.media.AudioManager;
+import android.os.SystemClock;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -30,24 +35,20 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import java.io.InputStream;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Prototype natif de l'accueil, thème Modern : photo de fond (une toutes les 2 h), vignettage la nuit,
- * salutation, heure et date, dock (favoris puis tri par usage), mode édition (appui long sur OK),
- * barre du haut (Préférences, Paramètres) et fenêtre Préférences.
- * Test : am start -n fr.accueil.natif/.MainActivity [--ef heure 21.5]
+ * Prototype natif de l'accueil, thème Modern : décor (SceneView), dock (favoris puis tri par usage),
+ * mode édition (appui long sur OK), barre du haut (Préférences, Paramètres), fenêtre Préférences,
+ * veille après 1 min sans activité et intro AxiomOS.
+ * Tests : am start -n fr.accueil.natif/.MainActivity [--ef heure 21.5] [--ez intro true] [--ez veille true]
  */
 public class MainActivity extends Activity implements PrefsView.Host {
 
@@ -67,8 +68,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
             "fr.francetv.pluzz",
             "tv.arte.plus7");
     private static final String SETTINGS = "com.android.tv.settings";
-    private static final int VISIBLE = 5, PHOTO_COUNT = 8;
-    private static final double LAT = 42.6986, LON = 2.8956;
+    private static final int VISIBLE = 5;
 
     static class App {
         String label, pkg, cls;
@@ -84,11 +84,10 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     private int W, H, tileW, tileH, gap, pad, dockW, dockH, dockLeft, dockTop;
     private float vw, vh;
-    private final ImageView[] photos = new ImageView[2];
-    private int photoOn = 0, photoIdx = -1;
-    private VignetteView vignette;
-    private Boolean night;
-    private TextView greet, clock, date, title, toast;
+    private SceneView scene;
+    private IntroView intro;
+    private LinearLayout bar;
+    private TextView title, toast;
     private DockView dock;
     private FrameLayout track;
     private LinearLayout hint;
@@ -100,8 +99,10 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private final List<TileView> tiles = new ArrayList<>();
     private int focus = 0, offset = 0;
     private boolean editing, onTop, prefsOpen, topOnGear = true;
-    private boolean okDown, okLong;
-    private float forcedHour = Float.NaN; // test : --ef heure 21.5
+    private boolean okDown, okLong, swallowUp;
+    private boolean idle, saverPreview;
+    private boolean hdmiConnected = true; // la télé reçoit-elle l'image ?
+    private long lastIntro = 0;
     private FrameLayout root;
 
     @Override
@@ -109,7 +110,6 @@ public class MainActivity extends Activity implements PrefsView.Host {
         long t0 = System.nanoTime();
         super.onCreate(savedInstanceState);
         store = new Store(this);
-        forcedHour = getIntent().getFloatExtra("heure", Float.NaN);
         Point size = new Point();
         getWindowManager().getDefaultDisplay().getRealSize(size);
         W = size.x;
@@ -123,34 +123,13 @@ public class MainActivity extends Activity implements PrefsView.Host {
         root.setFocusable(true);
         root.setFocusableInTouchMode(true);
         root.setDefaultFocusHighlightEnabled(false);
-        for (int i = 0; i < 2; i++) {
-            photos[i] = new ImageView(this);
-            photos[i].setScaleType(ImageView.ScaleType.CENTER_CROP);
-            photos[i].setAlpha(0f);
-            root.addView(photos[i], match());
-        }
-        vignette = new VignetteView(this);
-        vignette.setAlpha(0f);
-        root.addView(vignette, match());
-
-        // Salutation, heure et date, en haut à gauche
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.VERTICAL);
-        greet = text(1.05f * vw, 500, .24f, true);
-        greet.setAlpha(.9f);
-        clock = text(6.6f * vw, 200, -.02f, false);
-        date = text(1.05f * vw, 500, .22f, true);
-        date.setTextColor(0xDBFFFFFF);
-        top.addView(greet, margins(px(.2f), 0, 0, Math.round(.4f * vh)));
-        top.addView(clock, margins(0, 0, 0, 0));
-        top.addView(date, margins(px(.2f), Math.round(.6f * vh), 0, 0));
-        FrameLayout.LayoutParams tlp = wrap(Gravity.TOP | Gravity.LEFT);
-        tlp.leftMargin = px(4.5f);
-        tlp.topMargin = Math.round(7 * vh);
-        root.addView(top, tlp);
+        // Décor : photo, vignettage la nuit, salutation, heure et date
+        scene = new SceneView(this, W, H);
+        scene.forcedHour = getIntent().getFloatExtra("heure", Float.NaN);
+        root.addView(scene, match());
 
         // Barre du haut : Préférences et Paramètres (flèche haut depuis le dock)
-        LinearLayout bar = new LinearLayout(this);
+        bar = new LinearLayout(this);
         bar.setClipChildren(false); // le bouton sélectionné grossit au-delà de la barre
         prefsBtn = new PillButton(R.drawable.ic_prefs, "Préférences");
         gearBtn = new PillButton(R.drawable.ic_gear, "Paramètres");
@@ -210,11 +189,28 @@ public class MainActivity extends Activity implements PrefsView.Host {
         prefs.setElevation(10 * vw); // au-dessus du dock, qui a sa propre élévation
         root.addView(prefs, match());
 
+        // Intro AxiomOS, par-dessus tout
+        intro = new IntroView(this, vw, this::wake);
+        intro.setElevation(20 * vw);
+        root.addView(intro, match());
+
         setContentView(root);
-        showPhoto(photoForNow(), false);
-        updateNight(false);
-        tick();
+        scene.setPhotoListener(dock::setBackdrop);
+        scene.showNow();
         loadApps();
+
+        Intent in = getIntent();
+        if (in.getBooleanExtra("veille", false)) setSaverPreview(true);
+        else if (in.getBooleanExtra("intro", false) || (isDefaultHome() && bootIntroDue())) {
+            intro.play(in.getIntExtra("introDelay", 500));
+            lastIntro = SystemClock.elapsedRealtime();
+        }
+        // Intro quand la télé se rallume : seulement si cette appli est l'accueil par défaut,
+        // pour ne jamais passer devant l'accueil web pendant les essais
+        if (isDefaultHome()) {
+            registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
+            registerReceiver(hdmiPlug, new IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG));
+        }
         hideSystemUi();
         Log.i(TAG, "onCreate " + (System.nanoTime() - t0) / 1000000 + " ms");
     }
@@ -223,19 +219,27 @@ public class MainActivity extends Activity implements PrefsView.Host {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
-        minuteTick.run();
+        scene.start();
         loadApps(); // applis installées ou retirées, et tri par usage mis à jour
+        if (!saverPreview) wake();
     }
 
     @Override
     protected void onPause() {
-        ui.removeCallbacks(minuteTick);
+        scene.stop();
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        try {
+            unregisterReceiver(screenOn);
+            unregisterReceiver(hdmiPlug);
+        } catch (Exception ignored) {
+        }
+        ui.removeCallbacksAndMessages(null);
         worker.shutdownNow();
+        scene.release();
         super.onDestroy();
     }
 
@@ -243,9 +247,11 @@ public class MainActivity extends Activity implements PrefsView.Host {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (intent.hasExtra("heure")) {
-            forcedHour = intent.getFloatExtra("heure", Float.NaN);
-            updateNight(true);
+            scene.forcedHour = intent.getFloatExtra("heure", Float.NaN);
+            scene.updateNight(true);
         }
+        if (intent.getBooleanExtra("veille", false)) setSaverPreview(true);
+        if (intent.getBooleanExtra("intro", false)) playIntro(intent.getIntExtra("introDelay", 0));
     }
 
     @Override
@@ -281,6 +287,25 @@ public class MainActivity extends Activity implements PrefsView.Host {
         int k = e.getKeyCode();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         boolean back = k == KeyEvent.KEYCODE_BACK || k == KeyEvent.KEYCODE_ESCAPE;
+        if (!isOk(k) && !isArrow(k) && !back) return super.dispatchKeyEvent(e); // volume, etc.
+
+        if (intro.isPlaying()) { // une touche passe l'intro
+            if (down) intro.end(true);
+            return true;
+        }
+        if (saverPreview) {
+            if (!down) setSaverPreview(false);
+            return true;
+        }
+        // En veille, la première touche réveille seulement l'accueil
+        if (down && e.getRepeatCount() == 0 && wake()) {
+            swallowUp = true;
+            return true;
+        }
+        if (swallowUp) {
+            if (!down) swallowUp = false;
+            return true;
+        }
 
         if (prefsOpen) {
             if (back) {
@@ -348,103 +373,105 @@ public class MainActivity extends Activity implements PrefsView.Host {
         // sinon : écran d'accueil, le bouton retour ne fait rien
     }
 
-    /* ===== Heure, date, salutation ; photo et nuit vérifiées à chaque minute ===== */
+    /* ===== Veille : après une minute sans activité, il ne reste que l'heure sur la photo ===== */
 
-    private final Runnable minuteTick = new Runnable() {
+    private static final int IDLE_MS = 60 * 1000;
+    private final Runnable goIdle = () -> {
+        if (!editing && !prefsOpen && !intro.isPlaying()) setIdle(true);
+    };
+
+    /** Relance le compte à rebours de la veille ; vrai si l'accueil était en veille. */
+    private boolean wake() {
+        boolean was = idle;
+        if (idle) setIdle(false);
+        ui.removeCallbacks(goIdle);
+        ui.postDelayed(goIdle, IDLE_MS);
+        return was;
+    }
+
+    private void setIdle(boolean on) {
+        idle = on;
+        dock.animate().alpha(on ? 0 : 1).translationY(on ? 3 * vw : 0).setDuration(1200).setInterpolator(EASE);
+        bar.animate().alpha(on ? 0 : 1).setDuration(600);
+        title.animate().alpha(on || editing ? 0 : 1).setDuration(on ? 600 : 150);
+        scene.setIdle(on, true);
+    }
+
+    /** Aperçu de l'économiseur d'écran (test : --ez veille true) ; une touche le referme. */
+    private void setSaverPreview(boolean on) {
+        saverPreview = on;
+        ui.removeCallbacks(goIdle);
+        int v = on ? View.GONE : View.VISIBLE;
+        dock.setVisibility(v);
+        bar.setVisibility(v);
+        title.setVisibility(v);
+        scene.setIdle(on, false);
+        if (!on) {
+            idle = false;
+            dock.setAlpha(1);
+            dock.setTranslationY(0);
+            bar.setAlpha(1);
+            title.setAlpha(editing ? 0 : 1);
+            wake();
+        }
+    }
+
+    /* ===== Intro AxiomOS ===== */
+
+    private void playIntro(int delayMs) {
+        if (prefsOpen) closePrefs();
+        if (onTop) leaveTop();
+        if (editing) setEditing(false);
+        if (saverPreview) setSaverPreview(false);
+        ui.removeCallbacks(goIdle);
+        intro.play(delayMs);
+    }
+
+    /** Ramène l'accueil au premier plan et joue l'intro (pas deux fois en moins de 15 s). */
+    private void introNow(int delayMs) {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastIntro < 15000) return;
+        lastIntro = now;
+        startActivity(new Intent(this, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                .putExtra("intro", true)
+                .putExtra("introDelay", delayMs));
+    }
+
+    // L'intro se joue quand la télé commence à recevoir l'image (allumage de la télé ou de la box)
+    private final BroadcastReceiver hdmiPlug = new BroadcastReceiver() {
         @Override
-        public void run() {
-            tick();
-            showPhoto(photoForNow(), true);
-            updateNight(true);
-            ui.removeCallbacks(this);
-            ui.postDelayed(this, 60000 - System.currentTimeMillis() % 60000 + 50);
+        public void onReceive(Context context, Intent intent) {
+            boolean connected = intent.getIntExtra(AudioManager.EXTRA_AUDIO_PLUG_STATE, 0) == 1;
+            boolean wasConnected = hdmiConnected;
+            hdmiConnected = connected;
+            if (isInitialStickyBroadcast()) return;
+            if (connected && !wasConnected) introNow(2000);
         }
     };
 
-    private String clockText() {
-        Calendar n = Calendar.getInstance();
-        return String.format(Locale.FRANCE, "%02d:%02d", n.get(Calendar.HOUR_OF_DAY), n.get(Calendar.MINUTE));
-    }
-
-    private void tick() {
-        Calendar n = Calendar.getInstance();
-        int h = n.get(Calendar.HOUR_OF_DAY);
-        clock.setText(clockText());
-        greet.setText(h < 5 || h >= 18 ? "Bonsoir" : h < 12 ? "Bonjour" : "Bon après-midi");
-        date.setText(new SimpleDateFormat("EEEE d MMMM", Locale.FRANCE).format(n.getTime()));
-    }
-
-    private Calendar now() {
-        Calendar c = Calendar.getInstance();
-        if (!Float.isNaN(forcedHour)) {
-            c.set(Calendar.HOUR_OF_DAY, (int) Math.floor(forcedHour));
-            c.set(Calendar.MINUTE, Math.round(forcedHour % 1 * 60));
+    // Sortie de veille sans coupure HDMI
+    private final BroadcastReceiver screenOn = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (hdmiConnected) introNow(2500);
         }
-        return c;
+    };
+
+    private boolean isDefaultHome() {
+        ResolveInfo r = getPackageManager().resolveActivity(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY);
+        return r != null && r.activityInfo != null && getPackageName().equals(r.activityInfo.packageName);
     }
 
-    /** Nuit = du coucher du soleil + 40 min au lever - 40 min, à Perpignan (formule NOAA, comme la version web). */
-    static boolean isNight(Calendar c) {
-        double rad = Math.PI / 180;
-        int m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
-        double g = 2 * Math.PI / 365 * (c.get(Calendar.DAY_OF_YEAR) - 1);
-        double eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
-                - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-        double decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g)
-                + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
-        double ha = Math.acos(Math.cos(90.833 * rad) / (Math.cos(LAT * rad) * Math.cos(decl))
-                - Math.tan(LAT * rad) * Math.tan(decl)) / rad;
-        double tz = c.getTimeZone().getOffset(c.getTimeInMillis()) / 60000.0;
-        double noon = 720 - 4 * LON - eqt + tz;
-        return m < noon - 4 * ha - 40 || m >= noon + 4 * ha + 40;
-    }
-
-    private void updateNight(boolean animate) {
-        boolean n = isNight(now());
-        if (night != null && night == n) return;
-        night = n;
-        vignette.animate().cancel();
-        if (animate) vignette.animate().alpha(n ? 1 : 0).setDuration(3000);
-        else vignette.setAlpha(n ? 1 : 0);
-    }
-
-    /* ===== Photo de fond, renouvelée toutes les 2 heures ===== */
-
-    private static int photoForNow() {
-        return (int) ((System.currentTimeMillis() / 7_200_000L) % PHOTO_COUNT);
-    }
-
-    private Bitmap decodeAsset(String path) {
-        try (InputStream in = getAssets().open(path)) {
-            return BitmapFactory.decodeStream(in);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private void showPhoto(final int idx, boolean animate) {
-        if (idx == photoIdx) return;
-        photoIdx = idx;
-        if (!animate) { // premier affichage : tout de suite, sans fondu
-            Bitmap b = decodeAsset("photos/" + (idx + 1) + ".jpg");
-            photos[photoOn].setImageBitmap(b);
-            photos[photoOn].setAlpha(1f);
-            dock.setBackdrop(b);
-            return;
-        }
-        worker.execute(() -> {
-            final Bitmap b = decodeAsset("photos/" + (idx + 1) + ".jpg");
-            ui.post(() -> {
-                if (b == null || idx != photoIdx) return;
-                final ImageView old = photos[photoOn];
-                photoOn = 1 - photoOn;
-                ImageView next = photos[photoOn];
-                next.setImageBitmap(b);
-                next.animate().alpha(1).setDuration(3000);
-                old.animate().alpha(0).setDuration(3000).withEndAction(() -> old.setImageDrawable(null));
-                dock.setBackdrop(b);
-            });
-        });
+    /** Vrai une seule fois par démarrage de la box, dans les 10 minutes qui suivent. */
+    private boolean bootIntroDue() {
+        long bootMinute = (System.currentTimeMillis() - SystemClock.elapsedRealtime()) / 60000;
+        SharedPreferences sp = getSharedPreferences("accueil", MODE_PRIVATE);
+        if (Math.abs(sp.getLong("introBoot", -10) - bootMinute) <= 1) return false;
+        if (SystemClock.elapsedRealtime() > 10 * 60 * 1000) return false;
+        sp.edit().putLong("introBoot", bootMinute).apply();
+        return true;
     }
 
     /* ===== Applis ===== */
@@ -603,7 +630,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
     private void showTitle(final String name) {
         title.animate().alpha(0).setDuration(100).withEndAction(() -> {
             title.setText(name);
-            title.animate().alpha(editing ? 0 : 1).setDuration(150);
+            title.animate().alpha(editing || idle ? 0 : 1).setDuration(150);
         });
     }
 
@@ -699,7 +726,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         prefsOpen = true;
         gearBtn.setFocus(false);
         prefsBtn.setFocus(false);
-        prefs.open("photo", decodeAsset("photos/mini/" + (photoIdx + 1) + ".jpg"), clockText());
+        prefs.open("photo", scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), SceneView.clockText());
         prefs.setVisibility(View.VISIBLE);
     }
 
@@ -800,15 +827,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     /* ===== Outils d'affichage ===== */
 
-    /** Roboto, la police système d'Android, au poids demandé (choix de l'utilisateur). */
     @Override
     public Typeface font(int weight) {
-        Typeface t = fonts.get(weight);
-        if (t == null) {
-            t = Build.VERSION.SDK_INT >= 28 ? Typeface.create(Typeface.SANS_SERIF, weight, false) : Typeface.SANS_SERIF;
-            fonts.put(weight, t);
-        }
-        return t;
+        return SceneView.font(weight);
     }
 
     private int px(float v) {
@@ -824,16 +845,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
     }
 
     private TextView text(float sizePx, int weight, float letterSpacing, boolean caps) {
-        TextView v = new TextView(this);
-        v.setTextSize(TypedValue.COMPLEX_UNIT_PX, sizePx);
-        v.setTypeface(font(weight));
-        v.setLetterSpacing(letterSpacing);
-        v.setTextColor(Color.WHITE);
-        v.setIncludeFontPadding(false);
-        v.setSingleLine(true);
-        v.setAllCaps(caps); // après setSingleLine, qui remplacerait la mise en majuscules
-        v.setShadowLayer(.7f * vw, 0, 1, 0x59000000);
-        return v;
+        return SceneView.text(this, sizePx, weight, letterSpacing, caps);
     }
 
     private static FrameLayout.LayoutParams match() {
@@ -842,12 +854,6 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     private static FrameLayout.LayoutParams wrap(int gravity) {
         return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, gravity);
-    }
-
-    private static LinearLayout.LayoutParams margins(int l, int t, int r, int b) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(l, t, r, b);
-        return lp;
     }
 
     private void hideSystemUi() {

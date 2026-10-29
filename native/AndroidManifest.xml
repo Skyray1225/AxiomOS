@@ -32,5 +32,16 @@
             android:excludeFromRecents="true"
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode" />
+        <!-- Économiseur d'écran : inactif tant qu'on ne le choisit pas (settings secure screensaver_components) -->
+        <service
+            android:name=".AccueilDream"
+            android:exported="true"
+            android:label="Accueil natif"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
