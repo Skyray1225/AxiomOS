@@ -85,11 +85,17 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
     private Theme theme;
     private int W, H, tileW, tileH, gap, pad, dockW, dockH, dockLeft, dockTop;
-    private int itemW, itemH, stepX, stepY, rowsVisible; // grille et liste
+    private int itemW, itemH, stepX, stepY, rowsVisible, padL, padT, padB; // grille et liste
     private FrameLayout area;      // zone de la grille ou de la liste
     private AmbientHero hero;      // vitrine d'Ambient
     private final Map<String, float[][]> palettes = new ConcurrentHashMap<>();
-    private final Map<String, Bitmap> heroCache = new ConcurrentHashMap<>();
+    // vitrines déjà composées (≈ 3 Mo chacune) : les 8 dernières applis
+    private final Map<String, Bitmap> heroCache = Collections.synchronizedMap(new java.util.LinkedHashMap<String, Bitmap>(16, .75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Bitmap> e) {
+            return size() > 8;
+        }
+    });
     private float vw, vh;
     private SceneView scene;
     private IntroView intro;
@@ -117,6 +123,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         long t0 = System.nanoTime();
         super.onCreate(savedInstanceState);
         store = new Store(this);
+        store.unhideAllOnce();
         theme = Theme.of(store.theme);
         Point size = new Point();
         getWindowManager().getDefaultDisplay().getRealSize(size);
@@ -163,9 +170,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
         if (theme == Theme.AMBIENT) { // vitrine : à droite, sous la barre du haut
             int hw = px(40), hh = Math.round(hw * 9 / 16f);
             hero = new AmbientHero(this, vw, hw, hh);
-            FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(hw, hh * 2 + px(1.2f), Gravity.TOP | Gravity.RIGHT);
-            hl.rightMargin = px(7);
-            hl.topMargin = Math.round(17 * vh);
+            FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(hero.imageWidth(), hero.imageHeight(), Gravity.TOP | Gravity.RIGHT);
+            hl.rightMargin = px(7) - hero.margin; // l'image déborde de la carte de sa marge transparente
+            hl.topMargin = Math.round(17 * vh) - hero.margin;
             root.addView(hero, hl);
         }
         if (theme.dock == Theme.CAROUSEL) {
@@ -384,7 +391,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
                 if (onTop) {
                     if (topOnGear) openSettings();
                     else openPrefs();
-                } else if (editing) setEditing(false);
+                } else if (editing) {
+                    if (theme != Theme.MINIMAL) setEditing(false); // Minimal : seul Retour termine
+                }
                 else launch();
             }
             return true;
@@ -396,7 +405,10 @@ public class MainActivity extends Activity implements PrefsView.Host {
         if (!isArrow(k)) return super.dispatchKeyEvent(e);
         if (!down) return true;
 
-        if (editing) {
+        if (editing && theme == Theme.MINIMAL) { // Minimal : ↑ ↓ déplacent l'appli, rien d'autre
+            if (k == KeyEvent.KEYCODE_DPAD_UP) moveApp(-1);
+            else if (k == KeyEvent.KEYCODE_DPAD_DOWN) moveApp(1);
+        } else if (editing) {
             if (k == KeyEvent.KEYCODE_DPAD_RIGHT) moveApp(1);
             else if (k == KeyEvent.KEYCODE_DPAD_LEFT) moveApp(-1);
             else if (k == KeyEvent.KEYCODE_DPAD_DOWN) toggleHidden();
@@ -599,7 +611,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
     /** Applis du dock : favoris puis usage ; les masquées n'apparaissent qu'en mode édition. */
     private List<App> visibleApps() {
         List<App> all = store.ordered(allApps);
-        if (editing) return all;
+        if (editing || theme == Theme.MINIMAL) return all; // Minimal : pas d'applis masquées
         List<App> out = new ArrayList<>();
         for (App a : all) if (!store.hidden.contains(a.pkg)) out.add(a);
         return out.isEmpty() ? all : out; // jamais de dock vide
@@ -658,8 +670,11 @@ public class MainActivity extends Activity implements PrefsView.Host {
             stepY = itemH + px(.2f);
         }
         rowsVisible = Math.max(1, (int) ((al.height - .03f * H) / stepY));
-        area.setPadding(pl, pt, pr, pb);
-        area.setClipToPadding(false); // la tuile sélectionnée grossit dans la marge
+        // La marge fait partie de la zone qui défile : une tuile du bord qui grossit (×1,06) reste
+        // dans la zone, au lieu d'être coupée au bord de la grille.
+        padL = pl;
+        padT = pt;
+        padB = pb;
         track = new FrameLayout(this);
         track.setClipChildren(false);
         area.addView(track, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -679,19 +694,20 @@ public class MainActivity extends Activity implements PrefsView.Host {
             if (theme.dock == Theme.LIST) {
                 v = new ListRow(this, a.label, vw, scene.ink(), scene.inkSoft());
                 lp = new FrameLayout.LayoutParams(itemW, itemH);
-                lp.topMargin = i * stepY;
+                lp.leftMargin = padL;
+                lp.topMargin = padT + i * stepY;
             } else if (theme.dock == Theme.GRID) {
                 v = new TileView(this, a.banner, vw, TileView.GRID);
                 lp = new FrameLayout.LayoutParams(itemW, itemH);
-                lp.leftMargin = (i % cols) * stepX;
-                lp.topMargin = (i / cols) * stepY;
+                lp.leftMargin = padL + (i % cols) * stepX;
+                lp.topMargin = padT + (i / cols) * stepY;
             } else {
                 v = new TileView(this, a.banner, vw, TileView.CAROUSEL);
                 lp = new FrameLayout.LayoutParams(tileW, tileH);
                 lp.leftMargin = i * (tileW + gap);
             }
             DockItem t = (DockItem) v;
-            t.setFlags(store.pins.contains(a.pkg), store.hidden.contains(a.pkg));
+            t.setFlags(store.pins.contains(a.pkg), theme != Theme.MINIMAL && store.hidden.contains(a.pkg));
             t.setEditing(editing);
             track.addView(v, lp);
             tiles.add(t);
@@ -700,7 +716,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
         if (theme.dock == Theme.CAROUSEL) {
             tp.width = Math.max(tileW, shown.size() * (tileW + gap) - gap);
         } else {
-            tp.height = Math.max(itemH, ((shown.size() + cols - 1) / cols) * stepY);
+            tp.height = padT + padB + Math.max(itemH, ((shown.size() + cols - 1) / cols) * stepY);
         }
         track.setLayoutParams(tp);
         if (tiles.isEmpty()) return;
@@ -769,14 +785,21 @@ public class MainActivity extends Activity implements PrefsView.Host {
         final boolean first = heroCache.isEmpty();
         Bitmap hi = heroCache.get(a.pkg);
         if (hi != null) {
-            hero.show(hi, glow, false);
+            hero.show(hi, false);
             return;
         }
-        worker.execute(() -> { // bannière en grand, dessinée une fois par appli
-            Bitmap b = bannerHi(a);
-            if (b != null) heroCache.put(a.pkg, b);
-            ui.post(() -> {
-                if (focus < shown.size() && shown.get(focus) == a) hero.show(b, glow, first);
+        worker.execute(() -> { // vitrine composée une fois par appli (carte, reflet, lueur, ombre)
+            Bitmap v = null;
+            try {
+                Bitmap b = bannerHi(a);
+                v = b == null ? null : hero.compose(b, glow);
+            } catch (Throwable e) {
+                Log.e(TAG, "vitrine " + a.pkg, e);
+            }
+            if (v != null) heroCache.put(a.pkg, v);
+            final Bitmap img = v;
+            ui.post(() -> { // la liste a pu être rechargée entre-temps : on compare les paquets
+                if (focus < shown.size() && shown.get(focus).pkg.equals(a.pkg)) hero.show(img, first);
             });
         });
     }
@@ -1037,7 +1060,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
         LinearLayout h = new LinearLayout(this);
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(px(1.6f), px(.7f), px(1.6f), px(.7f));
-        String[][] parts = {{"← →", "Déplacer"}, {"↑", "Épingler"}, {"↓", "Masquer"}, {"OK", "Terminer"}};
+        String[][] parts = theme == Theme.MINIMAL ? new String[][]{{"↑ ↓", "Déplacer"}, {"Retour", "Terminer"}}
+                : new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"↓", "Masquer"}, {"OK", "Terminer"}};
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) {
                 View dot = new View(this);

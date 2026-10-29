@@ -82,6 +82,14 @@ class Store {
 
     void savePins() { put("pins", new JSONArray(pins).toString()); }
 
+    /** Réaffiche une fois toutes les applis masquées (le masquage n'existe plus en Minimal). */
+    void unhideAllOnce() {
+        if (sp.getBoolean("hiddenReset1", false)) return;
+        hidden.clear();
+        saveHidden();
+        sp.edit().putBoolean("hiddenReset1", true).apply();
+    }
+
     void saveHidden() { put("hidden", new JSONArray(new ArrayList<>(hidden)).toString()); }
 
     void saveAnimations() { put("animations", animations ? "true" : "false"); }
