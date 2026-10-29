@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guard_desc">Mode Kids : bloque les boutons raccourcis de la télécommande et ramène à l\'accueil si une appli non autorisée s\'ouvre. Inactif hors du mode Kids.</string>
+</resources>
