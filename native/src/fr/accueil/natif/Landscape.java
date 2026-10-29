@@ -26,13 +26,13 @@ import java.util.Random;
  * chemin, bosquets), dans assets/paysages. Le moment de la journée la transforme : de jour l'image
  * telle quelle avec le soleil ; à l'aube, au crépuscule et la nuit, le ciel est découpé (le long
  * de la ligne des montagnes) et redessiné (dégradé, soleil bas, lune, étoiles), et le paysage teinté.
- * Halloween a sa propre illustration ; Noël (sur l'hiver) ajoute ses décors à des endroits choisis
- * sur l'illustration. Le tout est composé une fois dans une image de 1920 × 1080, gardée en cache.
+ * Halloween et Noël ont leur propre illustration ; la nuit, leurs lumières (citrouilles, guirlandes,
+ * lanternes, étoile du sapin) se rallument par-dessus. Le tout est composé une fois dans une image de 1920 × 1080, gardée en cache.
  */
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 18; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 21; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
     static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel"};
 
@@ -88,7 +88,7 @@ final class Landscape {
 
     /** Illustration de la saison (Halloween sur l'automne, Noël sur l'hiver). */
     private static String image(String seasonId) {
-        return "noel".equals(seasonId) ? "hiver" : seasonId; // Halloween a sa propre illustration
+        return seasonId; // une illustration par saison, plus Halloween et Noël
     }
 
     /* ===== Couleurs ===== */
@@ -234,79 +234,193 @@ final class Landscape {
 
     private void compose(Context ctx, int idx, String seasonId) {
         Palette p0 = PALETTES[idx];
-        int[] sky = skyline(ctx, base);
-        Path skyPath = new Path(); // le ciel, au-dessus de la ligne des montagnes
-        skyPath.moveTo(0, 0);
-        for (int x = 0; x < W; x += 4) skyPath.lineTo(x, sky[x]);
-        skyPath.lineTo(W, sky[W - 1]);
-        skyPath.lineTo(W, 0);
-        skyPath.close();
+        boolean special = "halloween".equals(seasonId) || "noel".equals(seasonId);
+        int[] px = new int[W * H];
+        base.getPixels(px, 0, W, 0, 0, W, H);
+        int[] sky = skyMask(ctx, px); // opacité du ciel, 0 … 255
+        Bitmap emission = special && idx >= 2 ? emission(px) : null; // sources de lumière de l'illustration
         double sx = 330, sy = new double[]{430, 250, 450, 250}[idx];
         Paint img = new Paint(Paint.FILTER_BITMAP_FLAG);
-        if ("halloween".equals(seasonId)) { // illustration complète, déjà au crépuscule : seulement teintée
-            if (idx != 1 && idx != 2) img.setColorFilter(new ColorMatrixColorFilter(grade(idx)));
-            cv.drawBitmap(base, 0, 0, img);
-            if (idx == 3) halloweenGlow();
-            return;
-        }
         if (idx == 1) { // jour : l'illustration telle quelle, le soleil derrière les montagnes
             cv.drawBitmap(base, 0, 0, img);
-            cv.save();
-            cv.clipPath(skyPath);
+            if (special) return; // ciel du crépuscule (Halloween) ou couvert (Noël) : pas de soleil
+            int lay = cv.saveLayer(0, 0, W, H, null);
             sun(p0, sx, sy, false);
-            cv.restore();
-        } else {
-            // ciel redessiné : dégradé du moment, étoiles, soleil bas ou lune
-            fill.setShader(new LinearGradient(0, 0, 0, 600, p0.sky, new float[]{0, .55f, 1}, Shader.TileMode.CLAMP));
-            cv.drawRect(0, 0, W, H, fill);
-            if (p0.night) {
-                Random rnd = new Random(1234);
-                for (int i = 0; i < 160; i++) circle(rnd.nextFloat() * W, rnd.nextFloat() * 560, rnd.nextFloat() * 1.7 + .4, fill(WHITE, rnd.nextFloat() * .6 + .25));
+            int[] a = new int[W * H];
+            for (int i = 0; i < a.length; i++) a[i] = sky[i] << 24;
+            Paint in = new Paint();
+            in.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+            Bitmap mk = Bitmap.createBitmap(a, W, H, Bitmap.Config.ARGB_8888);
+            cv.drawBitmap(mk, 0, 0, in);
+            mk.recycle();
+            cv.restoreToCount(lay);
+            return;
+        }
+        // ciel redessiné : dégradé du moment, étoiles, soleil bas ou lune
+        fill.setShader(new LinearGradient(0, 0, 0, 600, p0.sky, new float[]{0, .55f, 1}, Shader.TileMode.CLAMP));
+        cv.drawRect(0, 0, W, H, fill);
+        if (p0.night) {
+            Random rnd = new Random(1234);
+            for (int i = 0; i < 160; i++) circle(rnd.nextFloat() * W, rnd.nextFloat() * 560, rnd.nextFloat() * 1.7 + .4, fill(WHITE, rnd.nextFloat() * .6 + .25));
+        }
+        sun(p0, sx, sy, p0.night);
+        // paysage sans son ciel (les arbres, l'étoile du sapin, les chauves-souris restent), teinté
+        for (int i = 0; i < px.length; i++) px[i] = (px[i] & 0x00FFFFFF) | (255 - sky[i]) << 24;
+        Bitmap cut = Bitmap.createBitmap(px, W, H, Bitmap.Config.ARGB_8888);
+        img.setColorFilter(new ColorMatrixColorFilter(grade(idx)));
+        cv.drawBitmap(cut, 0, 0, img);
+        cut.recycle();
+        if (idx != 3) { // reflet chaud de l'aube ou du crépuscule
+            Paint warm = new Paint();
+            warm.setShader(new LinearGradient(0, 350, 0, H, alpha(idx == 0 ? c("#ffc9a6") : c("#e09070"), idx == 0 ? .1 : .12),
+                    alpha(idx == 0 ? c("#ffc9a6") : c("#6a4a6a"), .04), Shader.TileMode.CLAMP));
+            warm.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
+            cv.drawRect(0, 350, W, H, warm);
+        }
+        if (emission != null) {
+            lightUp(emission, idx == 3 ? 1 : .5);
+            emission.recycle();
+        }
+    }
+
+    /* ===== Ciel de l'illustration ===== */
+
+    private static int[] SKY0;
+
+    /**
+     * Ciel de l'illustration : remplissage depuis le haut de l'image, de proche en proche tant que la
+     * couleur varie doucement (dégradé du ciel, nuages vaporeux). Arbres, étoile du sapin, chauves-souris
+     * ont un bord net : ils restent. Par sécurité, rien en dessous de la ligne des montagnes (repérée
+     * une fois sur l'illustration d'été, au ciel bleu vif bien contrasté). Bord adouci d'un pixel.
+     */
+    private static int[] skyMask(Context ctx, int[] px) {
+        int[] prior = prior(ctx);
+        byte[] m = new byte[W * H];
+        int[] q = new int[W * H];
+        int head = 0, tail = 0;
+        for (int x = 0; x < W; x++) if (prior[x] > 0) { m[x] = 1; q[tail++] = x; }
+        while (head < tail) {
+            int i = q[head++], x = i % W, y = i / W;
+            for (int k = 0; k < 4; k++) {
+                int x2 = x + (k == 0 ? 1 : k == 1 ? -1 : 0), y2 = y + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                if (x2 < 0 || x2 >= W || y2 < 0 || y2 >= H) continue;
+                int j = y2 * W + x2;
+                if (m[j] != 0 || y2 > prior[x2] + 3 || dist(px[i], px[j]) > 10) continue;
+                m[j] = 1;
+                q[tail++] = j;
             }
-            sun(p0, sx, sy, p0.night);
-            // paysage découpé le long des montagnes, teinté par la lumière du moment
-            Bitmap cut = base.copy(Bitmap.Config.ARGB_8888, true);
-            cut.setHasAlpha(true); // issue d'un JPEG : sans cela, le ciel vidé effacerait le dégradé
-            int[] row = new int[W];
-            for (int y = 0; y < H; y++) {
-                boolean any = false;
-                for (int x = 0; x < W; x++) if (y < sky[x] + 1) { any = true; break; }
-                if (!any) continue;
-                cut.getPixels(row, 0, W, 0, y, W, 1);
-                for (int x = 0; x < W; x++) {
-                    if (y < sky[x] - 1) row[x] = 0;
-                    else if (y < sky[x] + 1) row[x] = (row[x] & 0x00FFFFFF) | ((y - sky[x] + 2) * 85) << 24; // bord adouci
+        }
+        int[] a = new int[W * H];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                int sum = 0, n = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || xx >= W || yy < 0 || yy >= H) continue;
+                        sum += m[yy * W + xx];
+                        n++;
+                    }
+                a[y * W + x] = sum * 255 / n;
+            }
+        return a;
+    }
+
+    /** Ligne des montagnes de l'illustration d'été (ciel bleu vif, montagnes grises). */
+    private static synchronized int[] prior(Context ctx) {
+        if (SKY0 != null) return SKY0;
+        Bitmap ete = asset(ctx, "ete");
+        SKY0 = new int[W];
+        int[] col = new int[H];
+        for (int x = 0; x < W; x++) {
+            ete.getPixels(col, 0, 1, x, 0, 1, H);
+            int y = 0;
+            while (y < H - 1) {
+                int p = col[y], r = p >> 16 & 255, b = p & 255;
+                if (b - r < 60) break;
+                y++;
+            }
+            SKY0[x] = y;
+        }
+        ete.recycle();
+        return SKY0;
+    }
+
+    /**
+     * Sources de lumière de l'illustration : pixels à la fois très lumineux et chauds (ampoules,
+     * étoile du sapin, flammes des lanternes, visages des citrouilles). Les feuillages jaunes,
+     * la neige ou les boules dorées n'y entrent pas (pas assez lumineux, ou pas assez chauds).
+     * Renvoie ces pixels avec leur couleur d'origine et une opacité selon leur intensité.
+     */
+    private static Bitmap emission(int[] px) {
+        int[] e = new int[px.length];
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i], r = p >> 16 & 255, g = p >> 8 & 255, b = p & 255;
+            double lum = .3 * r + .59 * g + .11 * b, warm = r - b;
+            double a = smooth(185, 228, lum) * smooth(18, 70, warm) * smooth(-20, 20, g - b - 25);
+            if (a > .02) e[i] = (int) Math.round(a * 255) << 24 | (p & 0x00FFFFFF);
+        }
+        return Bitmap.createBitmap(e, W, H, Bitmap.Config.ARGB_8888);
+    }
+
+    private static double smooth(double a, double b, double v) {
+        double t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+        return t * t * (3 - 2 * t);
+    }
+
+    /**
+     * Les lumières gardent leur éclat d'origine par-dessus la scène assombrie, puis diffusent :
+     * un halo serré et vif, et une lueur large et très douce (comme dans l'air humide du soir).
+     */
+    private void lightUp(Bitmap em, double strength) {
+        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
+        p.setAlpha((int) Math.round(255 * Math.min(1, strength * 1.1)));
+        cv.drawBitmap(em, 0, 0, p);
+        p.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SCREEN));
+        int[][] spreads = {{4, 3}, {16, 3}}; // réduction, passes de flou
+        double[] amount = {1.1, .65};
+        for (int k = 0; k < spreads.length; k++) {
+            int f = spreads[k][0], w = W / f, h = H / f;
+            Bitmap small = Bitmap.createScaledBitmap(em, w, h, true);
+            int[] a = new int[w * h], t = new int[w * h];
+            small.getPixels(a, 0, w, 0, 0, w, h);
+            // couleur prémultipliée par l'opacité : le flou ne fait pas baver de noir
+            for (int i = 0; i < a.length; i++) {
+                int al = a[i] >>> 24;
+                a[i] = ((a[i] >> 16 & 255) * al / 255) << 16 | ((a[i] >> 8 & 255) * al / 255) << 8 | (a[i] & 255) * al / 255;
+            }
+            for (int pass = 0; pass < spreads[k][1]; pass++) {
+                box(a, t, w, h, true);
+                box(t, a, w, h, false);
+            }
+            double gain = amount[k] * strength * (k == 0 ? 2.2 : 3.2); // le flou dilue : on compense
+            for (int i = 0; i < a.length; i++) {
+                int r = Math.min(255, (int) ((a[i] >> 16 & 255) * gain)), g = Math.min(255, (int) ((a[i] >> 8 & 255) * gain)),
+                        b = Math.min(255, (int) ((a[i] & 255) * gain * .85));
+                a[i] = 0xFF000000 | r << 16 | g << 8 | b;
+            }
+            small.recycle();
+            Bitmap halo = Bitmap.createBitmap(a, w, h, Bitmap.Config.ARGB_8888);
+            p.setAlpha(255);
+            cv.drawBitmap(halo, null, new RectF(0, 0, W, H), p);
+            halo.recycle();
+        }
+    }
+
+    /** Moyenne sur 5 pixels, horizontalement ou verticalement (canaux R, G, B). */
+    private static void box(int[] in, int[] out, int w, int h, boolean horizontal) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int r = 0, g = 0, b = 0;
+                for (int d = -2; d <= 2; d++) {
+                    int xx = horizontal ? Math.max(0, Math.min(w - 1, x + d)) : x, yy = horizontal ? y : Math.max(0, Math.min(h - 1, y + d));
+                    int p = in[yy * w + xx];
+                    r += p >> 16 & 255;
+                    g += p >> 8 & 255;
+                    b += p & 255;
                 }
-                cut.setPixels(row, 0, W, 0, y, W, 1);
+                out[y * w + x] = (r / 5) << 16 | (g / 5) << 8 | b / 5;
             }
-            img.setColorFilter(new ColorMatrixColorFilter(grade(idx)));
-            cv.drawBitmap(cut, 0, 0, img);
-            cut.recycle();
-            if (idx != 3) { // reflet chaud de l'aube ou du crépuscule sur le paysage
-                Paint warm = new Paint();
-                warm.setShader(new LinearGradient(0, 350, 0, H, alpha(idx == 0 ? c("#ffc9a6") : c("#e09070"), idx == 0 ? .1 : .12),
-                        alpha(idx == 0 ? c("#ffc9a6") : c("#6a4a6a"), .04), Shader.TileMode.CLAMP));
-                cv.save();
-                Path land = new Path(skyPath);
-                land.setFillType(Path.FillType.INVERSE_WINDING);
-                cv.clipPath(land);
-                cv.drawRect(0, 0, W, H, warm);
-                cv.restore();
-            }
-        }
-        if (!"noel".equals(seasonId)) return;
-        boolean lit = idx >= 2;
-        // décors de Noël dans un calque, teintés par la lumière du moment (sinon trop vifs la nuit)
-        int lay = cv.saveLayer(0, 0, W, H, null);
-        christmas(p0, lit);
-        double tint = new double[]{.12, 0, .18, .42}[idx];
-        if (tint > 0) {
-            Paint tp = new Paint();
-            tp.setColor(alpha(p0.night ? c("#1d2a44") : p0.sky[0], tint));
-            tp.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
-            cv.drawRect(0, 0, W, H, tp);
-        }
-        cv.restoreToCount(lay);
     }
 
     /** Teinte du paysage selon le moment : aube dorée, crépuscule rosé, nuit bleutée et sombre. */
@@ -337,460 +451,10 @@ final class Landscape {
         } else circle(sx, sy, 92, fill(p0.sun));
     }
 
-    /* ===== Ligne des montagnes ===== */
-
-    private static int[] SKY0;
-
-    /**
-     * Hauteur du ciel, colonne par colonne. Repérée une fois sur l'illustration d'été (ciel bleu vif,
-     * montagnes grises : contraste net), puis ajustée sur chaque illustration en cherchant, à quelques
-     * pixels près, le bord le plus marqué.
-     */
-    private static int[] skyline(Context ctx, Bitmap img) {
-        synchronized (Landscape.class) {
-            if (SKY0 == null) {
-                Bitmap ete = asset(ctx, "ete");
-                SKY0 = new int[W];
-                int[] col = new int[H];
-                for (int x = 0; x < W; x++) {
-                    ete.getPixels(col, 0, 1, x, 0, 1, H);
-                    int y = 0;
-                    while (y < H - 1) {
-                        int p = col[y], r = p >> 16 & 255, b = p & 255;
-                        if (b - r < 60) break; // plus de ciel bleu
-                        y++;
-                    }
-                    SKY0[x] = y;
-                }
-                ete.recycle();
-            }
-        }
-        int[] sky = new int[W], col = new int[H];
-        for (int x = 0; x < W; x++) {
-            img.getPixels(col, 0, 1, x, 0, 1, H);
-            int y0 = SKY0[x], best = y0;
-            double bestD = -1;
-            for (int y = Math.max(2, y0 - 10); y <= Math.min(H - 3, y0 + 10); y++) {
-                double dd = dist(col[y - 2], col[y + 2]);
-                if (dd > bestD + 6) { bestD = dd; best = y; }
-            }
-            sky[x] = best;
-        }
-        // lissage léger : pas de dents isolées
-        int[] sm = sky.clone();
-        for (int x = 2; x < W - 2; x++) {
-            int[] w5 = {sky[x - 2], sky[x - 1], sky[x], sky[x + 1], sky[x + 2]};
-            Arrays.sort(w5);
-            sm[x] = w5[2];
-        }
-        return sm;
-    }
 
     private static double dist(int a, int b) {
         return Math.abs((a >> 16 & 255) - (b >> 16 & 255)) + Math.abs((a >> 8 & 255) - (b >> 8 & 255)) + Math.abs((a & 255) - (b & 255));
     }
-
-    /** Nuit d'Halloween : les citrouilles et lanternes de l'illustration se rallument par-dessus la teinte de nuit. */
-    private void halloweenGlow() {
-        double[][] pk = {{709, 769, 22}, {750, 755, 24}, {920, 764, 20}, {978, 731, 14}, {1011, 818, 34}, {699, 900, 50},
-                {624, 939, 36}, {1014, 919, 40}, {1084, 939, 30}, {1715, 610, 26}, {1880, 639, 24}, {1792, 697, 24},
-                {1560, 789, 22}, {1251, 653, 12}, {1406, 629, 12}, {1454, 605, 12}, {426, 644, 12}};
-        Paint g = new Paint(Paint.ANTI_ALIAS_FLAG);
-        g.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SCREEN));
-        for (double[] p : pk) {
-            g.setShader(new RadialGradient((float) p[0], (float) p[1], (float) (p[2] * 2.6), new int[]{0xCCFFB040, 0x66FF8A20, 0x00FF8A20},
-                    new float[]{0, .35f, 1}, Shader.TileMode.CLAMP));
-            cv.drawCircle((float) p[0], (float) p[1], (float) (p[2] * 2.6), g);
-        }
-    }
-
-    /* ===== Noël (sur l'illustration d'hiver) ===== */
-
-    private void christmas(Palette p0, boolean lit) {
-        int[][] gifts = {{0xFFD23B3B, 0xFFF2C14E}, {0xFF2F8A4A, 0xFFD23B3B}, {0xFF3A6CCF, 0xFFF4F4F4},
-                {0xFFE0B040, 0xFFC0302F}, {0xFF8E44AD, 0xFFF2C14E}, {0xFFF4F4F4, 0xFFD23B3B}};
-        Rng cr = new Rng(2512);
-        // maison en pain d'épices au second plan, à côté du bosquet de gauche
-        gingerbread(640, 714, ground(640, 718), p0, lit);
-        // au-dessus du dock : grand sapin et cadeaux à droite du chemin, bonhomme, sucres d'orge
-        christmasTree(1215, 776, 150, lit);
-        giftPile(1215, 780, 3, 26, gifts, 0, cr);
-        snowman(400, 776, 70);
-        candyCane(1075, 772, 50, false);
-        candyCane(1095, 776, 40, true);
-        candyCane(545, 778, 52, true);
-        giftPile(1400, 778, 3, 26, gifts, 3, cr);
-        giftPile(480, 780, 2, 24, gifts, 1, cr);
-        // premier plan, visible en veille
-        christmasTree(500, 945, 230, lit);
-        giftPile(500, 952, 4, 40, gifts, 2, cr);
-        snowman(1300, 972, 130);
-        candyCane(300, 948, 150, true);
-        candyCane(340, 954, 115, false);
-        candyCane(1520, 968, 160, false);
-        candyCane(1480, 972, 120, true);
-        giftPile(1120, 966, 3, 44, gifts, 4, cr);
-        giftPile(1440, 975, 2, 46, gifts, 5, cr);
-    }
-
-    /**
-     * Maison en pain d'épices : murs en pain d'épices bordés de glaçage, toit en tuiles de bonbons
-     * sous la neige avec coulures, guirlande lumineuse, couronne sur la porte, sucres d'orge, sucettes,
-     * cœur et pastilles de menthe sur la façade, fenêtres allumées le soir, bonhomme en pain d'épices.
-     */
-    private void gingerbread(double x, double y, int col, Palette p0, boolean lit) {
-        double s = 92, haze = .1;
-        double hz = haze * .6;
-        int dough = mix(mix(c("#b5713a"), p0.tree, .2), col, hz), doughD = mix(dough, BLACK, .25);
-        int choco = mix(mix(c("#5b3420"), p0.tree, .2), col, hz);
-        int icing = c("#fdfaf5");
-        ellipse(x + s * .05, y + s * .01, s * .78, s * .08, fill(c("#f5f8fb")));
-        // cheminée et fumée
-        cv.drawRect((float) (x + s * .2), (float) (y - s * 1.12), (float) (x + s * .34), (float) (y - s * .76), fill(doughD));
-        cv.drawRect((float) (x + s * .18), (float) (y - s * 1.17), (float) (x + s * .36), (float) (y - s * 1.1), fill(icing));
-        int smoke = mix(p0.sky[1], WHITE, .3);
-        double[][] puffs = {{.29, 1.27, .07}, {.34, 1.39, .09}, {.43, 1.53, .11}, {.55, 1.67, .12}};
-        for (double[] pf : puffs) circle(x + s * pf[0], y - s * pf[1], s * pf[2], fill(smoke, .45));
-        // murs et pignon
-        Path w = new Path();
-        m(w, x - s * .44, y); l(w, x - s * .44, y - s * .5); l(w, x, y - s * .88); l(w, x + s * .44, y - s * .5); l(w, x + s * .44, y); w.close();
-        cv.drawPath(w, fill(dough));
-        cv.drawRect((float) (x + s * .2), (float) (y - s * .5), (float) (x + s * .44), (float) y, fill(doughD, .4));
-        stroke.setColor(icing);
-        stroke.setStrokeCap(Paint.Cap.ROUND);
-        stroke.setStrokeWidth((float) (s * .03));
-        // glaçage : angles des murs et festons en bas
-        cv.drawLine((float) (x - s * .44), (float) y, (float) (x - s * .44), (float) (y - s * .5), stroke);
-        cv.drawLine((float) (x + s * .44), (float) y, (float) (x + s * .44), (float) (y - s * .5), stroke);
-        Path z = new Path();
-        m(z, x - s * .44, y - s * .08);
-        for (int k = 0; k < 8; k++) {
-            double x0 = x - s * .44 + k * s * .11;
-            q(z, x0 + s * .055, y + s * .005, x0 + s * .11, y - s * .08);
-        }
-        cv.drawPath(z, stroke);
-        // cœur au pignon, pastilles de menthe
-        double hy = y - s * .64;
-        Path heart = new Path();
-        m(heart, x, hy + s * .08);
-        q(heart, x - s * .12, hy - s * .02, x - s * .06, hy - s * .07);
-        q(heart, x, hy - s * .1, x, hy - s * .03);
-        q(heart, x, hy - s * .1, x + s * .06, hy - s * .07);
-        q(heart, x + s * .12, hy - s * .02, x, hy + s * .08);
-        heart.close();
-        cv.drawPath(heart, fill(c("#d8343a")));
-        cv.drawPath(heart, stroke);
-        for (int k = -1; k <= 1; k += 2) mint(x + k * s * .3, y - s * .62 + s * .04, s * .055);
-        // porte arrondie : encadrement en sucre d'orge, couronne
-        Path d = new Path();
-        m(d, x - s * .11, y); l(d, x - s * .11, y - s * .27);
-        d.arcTo(new RectF((float) (x - s * .11), (float) (y - s * .38), (float) (x + s * .11), (float) (y - s * .16)), 180, 180);
-        l(d, x + s * .11, y); d.close();
-        cv.drawPath(d, fill(choco));
-        Paint frame = new Paint(Paint.ANTI_ALIAS_FLAG);
-        frame.setStyle(Paint.Style.STROKE);
-        frame.setStrokeWidth((float) (s * .035));
-        frame.setColor(icing);
-        cv.drawPath(d, frame);
-        frame.setColor(c("#d22a33"));
-        frame.setPathEffect(new android.graphics.DashPathEffect(new float[]{(float) (s * .025), (float) (s * .025)}, 0));
-        cv.drawPath(d, frame);
-        double wy = y - s * .22;
-        Paint wr = new Paint(Paint.ANTI_ALIAS_FLAG);
-        wr.setStyle(Paint.Style.STROKE);
-        wr.setStrokeWidth((float) (s * .035));
-        wr.setColor(c("#2f7a42"));
-        cv.drawCircle((float) x, (float) wy, (float) (s * .055), wr);
-        for (int k = 0; k < 6; k++) circle(x + Math.cos(k * 1.05) * s * .055, wy + Math.sin(k * 1.05) * s * .055, s * .011, fill(c("#e8343a")));
-        circle(x, wy + s * .06, s * .018, fill(c("#e8343a")));
-        candyCane(x - s * .19, y + 1, s * .42, true);
-        candyCane(x + s * .19, y + 1, s * .42, false);
-        // fenêtres : glaçage, volets, lumière le soir
-        for (int k = -1; k <= 1; k += 2) {
-            double wx = x + k * s * .3, wyy = y - s * .3;
-            if (lit) {
-                fill.setShader(new RadialGradient((float) wx, (float) wyy, (float) (s * .25), 0x77FFC24A, 0x00FFC24A, Shader.TileMode.CLAMP));
-                circle(wx, wyy, s * .25, fill);
-            }
-            cv.drawRect((float) (wx - s * .075), (float) (wyy - s * .08), (float) (wx + s * .075), (float) (wyy + s * .08), fill(lit ? c("#ffcf5a") : c("#5a3418")));
-            cv.drawRect((float) (wx - s * .12), (float) (wyy - s * .08), (float) (wx - s * .08), (float) (wyy + s * .08), fill(c("#3f9a5a")));
-            cv.drawRect((float) (wx + s * .08), (float) (wyy - s * .08), (float) (wx + s * .12), (float) (wyy + s * .08), fill(c("#3f9a5a")));
-            stroke.setStrokeWidth((float) (s * .02));
-            cv.drawLine((float) wx, (float) (wyy - s * .08), (float) wx, (float) (wyy + s * .08), stroke);
-            cv.drawLine((float) (wx - s * .075), (float) wyy, (float) (wx + s * .075), (float) wyy, stroke);
-            stroke.setStrokeWidth((float) (s * .03));
-            cv.drawLine((float) (wx - s * .13), (float) (wyy + s * .1), (float) (wx + s * .13), (float) (wyy + s * .1), stroke);
-        }
-        // toit : chocolat, tuiles de bonbons, neige épaisse en haut, coulures de glaçage sur les bords
-        Path r = new Path();
-        m(r, x - s * .6, y - s * .42); l(r, x, y - s * 1.0); l(r, x + s * .6, y - s * .42);
-        l(r, x + s * .52, y - s * .36); l(r, x, y - s * .88); l(r, x - s * .52, y - s * .36); r.close();
-        cv.drawPath(r, fill(choco));
-        int[] tiles = {0xFFF6B3C8, 0xFFB8E3C2, 0xFFFFF1A6, 0xFFB9D7F5};
-        for (int row = 0; row < 3; row++) {
-            double f = .3 + row * .22;
-            for (int side = -1; side <= 1; side += 2) {
-                for (int k = 0; k < 4 - row / 2; k++) {
-                    double u = f + (k - 1.5) * .0 ;
-                    double along = .18 + k * .2;
-                    double tx = x + side * s * .56 * along, ty = y - s * 1.0 + (s * .58) * along + (row - 1) * s * .055;
-                    if (ty > y - s * .4) continue;
-                    circle(tx, ty, s * .03, fill(tiles[(row + k + (side > 0 ? 1 : 0)) % tiles.length]));
-                }
-            }
-        }
-        Path snow = new Path();
-        m(snow, x - s * .62, y - s * .43); l(snow, x, y - s * 1.03); l(snow, x + s * .62, y - s * .43);
-        l(snow, x + s * .56, y - s * .43); l(snow, x, y - s * .95); l(snow, x - s * .56, y - s * .43); snow.close();
-        cv.drawPath(snow, fill(icing));
-        Path drip = new Path();
-        for (int k = 0; k < 7; k++) {
-            double u = .08 + k * .135, d2 = s * (.05 + (k % 3) * .025);
-            double ex = x - s * .6 + u * s * .6, ey = y - s * .43 - u * s * .58;
-            m(drip, ex - s * .025, ey); q(drip, ex, ey + d2 * 1.6, ex + s * .025, ey); drip.close();
-            double fx = x + s * .6 - u * s * .6;
-            m(drip, fx - s * .025, ey); q(drip, fx, ey + d2 * 1.6, fx + s * .025, ey); drip.close();
-        }
-        cv.drawPath(drip, fill(icing));
-        // gros bonbons sur le faîte
-        int[] gum = {0xFFD8343A, 0xFF2F9A4A, 0xFFF2C14E, 0xFF3F7FD8};
-        for (int k = 0; k < 4; k++) {
-            double u = .25 + k * .17;
-            circle(x - s * .6 + u * s * .6, y - s * .45 - u * s * .58 - s * .03, s * .03, fill(gum[k]));
-            circle(x + s * .6 - u * s * .6, y - s * .45 - u * s * .58 - s * .03, s * .03, fill(gum[(k + 2) % 4]));
-        }
-        circle(x, y - s * 1.04, s * .045, fill(c("#d8343a")));
-        // guirlande lumineuse le long du bord du toit
-        int[] bulbs = {0xFFFF5A5A, 0xFFFFD45A, 0xFF5AD27A, 0xFF5AA8FF};
-        for (int side = -1; side <= 1; side += 2) {
-            for (int k = 0; k < 7; k++) {
-                double u = (k + .5) / 7;
-                double bx = x + side * s * .6 * (1 - u) , by = y - s * .43 - (u) * s * .58 + s * .05 + Math.sin(k * 1.3) * s * .008;
-                int bc = bulbs[(k + (side > 0 ? 2 : 0)) % 4];
-                if (lit) {
-                    fill.setShader(new RadialGradient((float) bx, (float) by, (float) (s * .05), (bc & 0x00FFFFFF) | 0x99000000, bc & 0x00FFFFFF, Shader.TileMode.CLAMP));
-                    circle(bx, by, s * .05, fill);
-                }
-                circle(bx, by, s * .013, fill(lit ? mix(bc, WHITE, .3) : mix(bc, BLACK, .2)));
-            }
-        }
-        // sucettes et bonhomme en pain d'épices devant la maison
-        lollipop(x - s * .52, y + 2, s * .38, c("#d8343a"));
-        lollipop(x + s * .52, y + 2, s * .34, c("#3f9a5a"));
-        gingerMan(x + s * .72, y + 2, s * .3, dough);
-    }
-
-    /** Pastille de menthe : disque blanc à quartiers rouges. */
-    private void mint(double x, double y, double r) {
-        circle(x, y, r, fill(WHITE));
-        for (int k = 0; k < 6; k += 2) {
-            Path p = new Path();
-            m(p, x, y);
-            p.arcTo(new RectF((float) (x - r), (float) (y - r), (float) (x + r), (float) (y + r)), k * 60, 60);
-            p.close();
-            cv.drawPath(p, fill(c("#d8343a")));
-        }
-    }
-
-    /** Bonhomme en pain d'épices, glaçage blanc et boutons rouges. */
-    private void gingerMan(double x, double y, double h, int dough) {
-        double r = h * .17;
-        Path b = new Path();
-        b.addCircle((float) x, (float) (y - h + r), (float) r, Path.Direction.CW);
-        b.addRoundRect(new RectF((float) (x - h * .17), (float) (y - h + r * 1.7), (float) (x + h * .17), (float) (y - h * .32)), (float) (h * .08), (float) (h * .08), Path.Direction.CW);
-        b.addRoundRect(new RectF((float) (x - h * .38), (float) (y - h + r * 1.9), (float) (x + h * .38), (float) (y - h + r * 2.9)), (float) (h * .06), (float) (h * .06), Path.Direction.CW);
-        b.addRoundRect(new RectF((float) (x - h * .19), (float) (y - h * .4), (float) (x - h * .03), (float) y), (float) (h * .07), (float) (h * .07), Path.Direction.CW);
-        b.addRoundRect(new RectF((float) (x + h * .03), (float) (y - h * .4), (float) (x + h * .19), (float) y), (float) (h * .07), (float) (h * .07), Path.Direction.CW);
-        cv.drawPath(b, fill(dough));
-        circle(x - r * .35, y - h + r * .85, h * .025, fill(WHITE));
-        circle(x + r * .35, y - h + r * .85, h * .025, fill(WHITE));
-        for (int k = 0; k < 2; k++) circle(x, y - h * .62 + k * h * .12, h * .03, fill(c("#d8343a")));
-    }
-
-    /** Sucre d'orge : canne blanche à rayures rouges, crosse vers la gauche ou la droite. */
-    private void candyCane(double x, double y, double h, boolean left) {
-        double r = h * .2, s = left ? -1 : 1;
-        Path p = new Path();
-        m(p, x, y);
-        l(p, x, y - h + r);
-        RectF arc = new RectF((float) (x + (s < 0 ? -2 * r : 0)), (float) (y - h), (float) (x + (s < 0 ? 0 : 2 * r)), (float) (y - h + 2 * r));
-        p.arcTo(arc, s < 0 ? 0 : 180, s < 0 ? -180 : 180);
-        l(p, x + 2 * r * s, y - h + r * 1.6);
-        ellipse(x + r * .3, y, h * .16, h * .04, fill(BLACK, .18));
-        Paint st = new Paint(Paint.ANTI_ALIAS_FLAG);
-        st.setStyle(Paint.Style.STROKE);
-        st.setStrokeCap(Paint.Cap.ROUND);
-        st.setStrokeWidth((float) (h * .12));
-        st.setColor(c("#f7f3ee"));
-        cv.drawPath(p, st);
-        st.setStrokeCap(Paint.Cap.BUTT);
-        st.setColor(c("#d22a33"));
-        st.setPathEffect(new android.graphics.DashPathEffect(new float[]{(float) (h * .07), (float) (h * .08)}, 0));
-        cv.drawPath(p, st);
-        st.setPathEffect(null);
-        st.setStrokeWidth((float) (h * .03)); // reflet
-        st.setColor(0x66FFFFFF);
-        cv.save();
-        cv.translate((float) (-h * .025), 0);
-        cv.drawPath(p, st);
-        cv.restore();
-    }
-
-    /** Cadeau : boîte, couvercle un peu plus large, rubans croisés, nœud, une pointe de neige. */
-    private void gift(double x, double y, double w, double h, int box, int ribbon) {
-        ellipse(x + w * .1, y, w * .65, h * .1, fill(BLACK, .18));
-        double l = x - w / 2, t = y - h;
-        cv.drawRect((float) l, (float) (t + h * .18), (float) (l + w), (float) y, fill(box));
-        cv.drawRect((float) (l + w * .62), (float) (t + h * .18), (float) (l + w), (float) y, fill(mix(box, BLACK, .18))); // côté à l'ombre
-        cv.drawRect((float) (l - w * .05), (float) t, (float) (l + w * 1.05), (float) (t + h * .22), fill(mix(box, WHITE, .1)));
-        cv.drawRect((float) (x - w * .08), (float) t, (float) (x + w * .08), (float) y, fill(ribbon));
-        cv.drawRect((float) l, (float) (t + h * .5), (float) (l + w), (float) (t + h * .6), fill(ribbon));
-        ellipse(x - w * .17, t - h * .06, w * .17, h * .1, fill(ribbon));
-        ellipse(x + w * .17, t - h * .06, w * .17, h * .1, fill(ribbon));
-        circle(x, t - h * .03, w * .07, fill(mix(ribbon, BLACK, .15)));
-        ellipse(x - w * .25, t + h * .02, w * .28, h * .05, fill(c("#f5f8fb"))); // neige sur le couvercle
-    }
-
-    /** Pile de cadeaux : n boîtes côte à côte, plus une petite posée dessus. */
-    private void giftPile(double x, double y, int n, double size, int[][] gifts, int g, Rng cr) {
-        double step = size * .95, cx = x - (n - 1) * step / 2;
-        for (int j = 0; j < n; j++) {
-            int[] gc = gifts[(g + j) % gifts.length];
-            double bw = size * (.8 + cr.r() * .45), bh = bw * (.65 + cr.r() * .5);
-            gift(cx + j * step, y + (j % 2) * 4, bw, bh, gc[0], gc[1]);
-        }
-        if (n >= 3) {
-            int[] gc = gifts[(g + n) % gifts.length];
-            gift(x + size * .1, y - size * .78, size * .6, size * .48, gc[0], gc[1]);
-        }
-    }
-
-    /** Bonhomme de neige : trois boules, chapeau, écharpe rouge, nez carotte, bras en branches. */
-    private void snowman(double x, double y, double h) {
-        ellipse(x + h * .06, y, h * .32, h * .05, fill(BLACK, .16));
-        double r1 = h * .25, r2 = h * .18, r3 = h * .13;
-        double c1 = y - r1, c2 = c1 - r1 - r2 * .7, c3 = c2 - r2 - r3 * .75;
-        int snow = c("#f7f9fc"), shade = c("#d6dfea");
-        for (double[] b : new double[][]{{c1, r1}, {c2, r2}, {c3, r3}}) {
-            circle(x, b[0], b[1], fill(snow));
-            circle(x + b[1] * .25, b[0] + b[1] * .15, b[1] * .8, fill(shade, .55));
-            circle(x - b[1] * .1, b[0] - b[1] * .05, b[1] * .78, fill(snow));
-        }
-        stroke.setColor(c("#5a3a22"));
-        stroke.setStrokeWidth((float) (h * .025));
-        stroke.setStrokeCap(Paint.Cap.ROUND);
-        cv.drawLine((float) (x - r2 * .8), (float) c2, (float) (x - r2 * 2), (float) (c2 - r2 * .9), stroke);
-        cv.drawLine((float) (x - r2 * 1.6), (float) (c2 - r2 * .6), (float) (x - r2 * 1.9), (float) (c2 - r2 * 1.3), stroke);
-        cv.drawLine((float) (x + r2 * .8), (float) c2, (float) (x + r2 * 2), (float) (c2 - r2 * .5), stroke);
-        for (int k = 0; k < 3; k++) circle(x, c2 - r2 * .45 + k * r2 * .4, h * .018, fill(c("#2a2a30")));
-        circle(x - r3 * .35, c3 - r3 * .2, h * .016, fill(c("#2a2a30")));
-        circle(x + r3 * .25, c3 - r3 * .2, h * .016, fill(c("#2a2a30")));
-        Path nose = new Path();
-        m(nose, x, c3 - r3 * .05); l(nose, x + r3 * .9, c3 + r3 * .08); l(nose, x, c3 + r3 * .18); nose.close();
-        cv.drawPath(nose, fill(c("#f08a24")));
-        cv.drawRect((float) (x - r2 * .95), (float) (c3 + r3 * .7), (float) (x + r2 * .95), (float) (c3 + r3 * 1.0), fill(c("#d23b3b")));
-        cv.drawRect((float) (x + r2 * .3), (float) (c3 + r3 * .8), (float) (x + r2 * .6), (float) (c3 + r3 * 1.8), fill(c("#b52f30")));
-        cv.drawRect((float) (x - r3 * 1.05), (float) (c3 - r3 * .85), (float) (x + r3 * 1.05), (float) (c3 - r3 * .7), fill(c("#26262c")));
-        cv.drawRect((float) (x - r3 * .7), (float) (c3 - r3 * 1.9), (float) (x + r3 * .7), (float) (c3 - r3 * .8), fill(c("#26262c")));
-        cv.drawRect((float) (x - r3 * .7), (float) (c3 - r3 * 1.05), (float) (x + r3 * .7), (float) (c3 - r3 * .88), fill(c("#d23b3b")));
-    }
-
-    /** Grand sapin de Noël : étages festonnés, guirlandes, boules, étoile ; lumières qui brillent le soir. */
-    private void christmasTree(double x, double y, double h, boolean lit) {
-        int dark = c("#1f5a3c"), light = c("#2f7a50");
-        Integer snow = c("#f5f8fb");
-        groundShadow(x, y, h, BLACK);
-        cv.drawRect((float) (x - h * .03), (float) (y - h * .14), (float) (x + h * .03), (float) y, fill(c("#5a3a22")));
-        for (int k = 0; k < 4; k++) {
-            double base = y - h * (.1 + k * .19), top = base - h * (.4 - k * .03), w = h * (.33 - k * .065);
-            Path dk = new Path(), lt = new Path();
-            m(dk, x, top); l(dk, x + w, base);
-            m(lt, x, top); l(lt, x, base + w * .03);
-            int n = 4;
-            double drop = w * .16;
-            for (int j = 0; j < n; j++) {
-                double x0 = x + w - (2 * w * j) / n, x1 = x + w - (2 * w * (j + 1)) / n;
-                double qy = base + drop * 1.6, ey = base + (j < n - 1 ? drop * .2 : 0);
-                q(dk, (x0 + x1) / 2, qy, x1, ey);
-                if (j >= n / 2) q(lt, (x0 + x1) / 2, qy, x1, ey);
-            }
-            dk.close();
-            lt.close();
-            cv.drawPath(dk, fill(dark));
-            cv.drawPath(lt, fill(light));
-            double my = top + (base - top) * .5;
-            Path sn = new Path();
-            m(sn, x, top); l(sn, x + w * .45, my);
-            q(sn, x + w * .2, my + w * .1, x, my + w * .04);
-            q(sn, x - w * .25, my + w * .12, x - w * .45, my);
-            sn.close();
-            cv.drawPath(sn, fill(snow, .9));
-            garland(x, top, base, w, h, k, lit);
-        }
-        double sy = y - h * (.1 + 3 * .19) - h * (.4 - 3 * .03), sr = h * .055;
-        fill.setShader(new RadialGradient((float) x, (float) sy, (float) (sr * (lit ? 5 : 3)), lit ? 0x99FFE08A : 0x55FFE08A, 0x00FFE08A, Shader.TileMode.CLAMP));
-        circle(x, sy, sr * (lit ? 5 : 3), fill);
-        Path st = new Path();
-        for (int k = 0; k < 10; k++) {
-            double a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 == 0 ? sr : sr * .45;
-            if (k == 0) m(st, x + Math.cos(a) * rr, sy + Math.sin(a) * rr);
-            else l(st, x + Math.cos(a) * rr, sy + Math.sin(a) * rr);
-        }
-        st.close();
-        cv.drawPath(st, fill(c("#ffd24a")));
-    }
-
-    /** Sucette : bâton blanc, disque en spirale de deux couleurs. */
-    private void lollipop(double x, double y, double h, int color) {
-        stroke.setColor(c("#f4efe6"));
-        stroke.setStrokeWidth((float) (h * .07));
-        stroke.setStrokeCap(Paint.Cap.ROUND);
-        cv.drawLine((float) x, (float) y, (float) x, (float) (y - h * .7), stroke);
-        double r = h * .3, cy = y - h * .7 - r * .8;
-        circle(x, cy, r, fill(WHITE));
-        Paint sp = new Paint(Paint.ANTI_ALIAS_FLAG);
-        sp.setStyle(Paint.Style.STROKE);
-        sp.setStrokeWidth((float) (r * .28));
-        sp.setColor(color);
-        Path spiral = new Path();
-        for (int k = 0; k <= 40; k++) {
-            double a = k * .45, rr = r * .85 * k / 40.0;
-            double px = x + Math.cos(a) * rr, py2 = cy + Math.sin(a) * rr;
-            if (k == 0) m(spiral, px, py2);
-            else l(spiral, px, py2);
-        }
-        cv.drawPath(spiral, sp);
-    }
-
-    /** Guirlande dorée en arc sur un étage du sapin, avec des boules (allumées la nuit). */
-    private void garland(double x, double top, double base, double w, double h, int k, boolean lit) {
-        double f = .72, yg = top + (base - top) * f, half = w * f * .92;
-        Path g = new Path();
-        m(g, x - half, yg - h * .01);
-        q(g, x, yg + w * .32, x + half, yg - h * .03);
-        stroke.setColor(lit ? c("#ffd772") : c("#e3b341"));
-        stroke.setStrokeWidth((float) Math.max(1, h * .014));
-        stroke.setStrokeCap(Paint.Cap.ROUND);
-        cv.drawPath(g, stroke);
-        double br = Math.max(1.4, h * .022);
-        for (int j = 0; j < 3; j++) {
-            double u = .2 + j * .3, bx = x - half + 2 * half * u;
-            double by = (1 - u) * (1 - u) * (yg - h * .01) + 2 * (1 - u) * u * (yg + w * .32) + u * u * (yg - h * .03) + br * .8;
-            int col = BAUBLES[Math.floorMod(k * 3 + j + (int) Math.floor(x * 7), BAUBLES.length)]; // x peut être négatif (bord gauche)
-            if (lit) {
-                fill.setShader(new RadialGradient((float) bx, (float) by, (float) (br * 3.2), (col & 0x00FFFFFF) | 0x80000000, col & 0x00FFFFFF, Shader.TileMode.CLAMP));
-                circle(bx, by, br * 3.2, fill);
-            }
-            circle(bx, by, br, fill(lit ? mix(col, WHITE, .25) : col));
-            circle(bx - br * .3, by - br * .3, br * .35, fill(WHITE, .7));
-        }
-    }
-
-    private void groundShadow(double x, double y, double h, int dark) {
-        ellipse(x + h * .06, y, h * .2, h * .035, fill(dark, .28));
-    }
-
-    private static final int[] BAUBLES = {0xFFD8343A, 0xFFF2C14E, 0xFF3F7FD8, 0xFFE8E8F0, 0xFFC0399A};
 
     private static void q(Path p, double x1, double y1, double x2, double y2) {
         p.quadTo((float) x1, (float) y1, (float) x2, (float) y2);
@@ -805,32 +469,65 @@ final class Landscape {
     }
 
     /** Sapin : étages aux bords festonnés qui retombent, face gauche éclairée. */
-    /* ===== Nuages de la météo (calque #clouds, graine 4242) ===== */
+    /* ===== Nuages de la météo ===== */
 
+    /**
+     * Nuages de la météo, dans l'esprit des nuages vaporeux des illustrations : nappes allongées à
+     * base plate, bosses basses, bords adoucis, à peine ombrées dessous. Perspective : grands et
+     * hauts dans le ciel, petits et étirés près de l'horizon. Blancs semi-transparents, puis teintés
+     * selon le moment et posés derrière les montagnes et les arbres (masque du ciel).
+     */
     static Bitmap weatherClouds(int width, int height) {
         Bitmap out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(out);
         float s = Math.max(width / (float) W, height / (float) H);
         cv.translate((width - W * s) / 2, (height - H * s) / 2);
         cv.scale(s, s);
-        Rng r = new Rng(4242);
+        Random r = new Random(4242);
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        for (int i = 0; i < 9; i++) {
-            double cx = r.r() * 2100 - 90, cy = 60 + r.r() * 380, w = 320 + r.r() * 420;
-            int a = (int) Math.round((.65 + r.r() * .3) * 255);
-            int lay = cv.saveLayerAlpha(null, a);
-            p.setColor(0xFFDFE5EA);
-            cv.drawOval(new RectF((float) (cx - w / 2), (float) (cy + w * .04 - w / 8), (float) (cx + w / 2), (float) (cy + w * .04 + w / 8)), p);
-            p.setColor(WHITE);
-            cv.drawOval(new RectF((float) (cx - w / 2.1), (float) (cy - w / 9), (float) (cx + w / 2.1), (float) (cy + w / 9)), p);
-            double ex = cx - w * .14, ey = cy - w * .07;
-            cv.drawOval(new RectF((float) (ex - w / 4.2), (float) (ey - w / 7.5), (float) (ex + w / 4.2), (float) (ey + w / 7.5)), p);
-            ex = cx + w * .12;
-            ey = cy - w * .05;
-            cv.drawOval(new RectF((float) (ex - w / 4.8), (float) (ey - w / 9), (float) (ex + w / 4.8), (float) (ey + w / 9)), p);
-            cv.restoreToCount(lay);
+        // x, base, taille (perspective : petits et étirés près de l'horizon)
+        double[][] clouds = {{260, 210, 1.15}, {760, 150, 1.0}, {1260, 230, 1.2}, {1700, 140, .95},
+                {520, 360, .7}, {1080, 390, .62}, {1520, 380, .66}, {180, 450, .45}, {880, 470, .42}, {1820, 470, .4}};
+        for (double[] cl : clouds) {
+            double sc = cl[2], w = 380 * sc * (.85 + r.nextDouble() * .4), hgt = w * (.32 - (1 - sc) * .12);
+            int n = 14 + r.nextInt(8);
+            double[][] puffs = new double[n][];
+            for (int k = 0; k < n; k++) { // bouffées : plus grosses et plus hautes au centre, base à peu près plate
+                double u = r.nextDouble() * 2 - 1, cx = cl[0] + u * w * .5;
+                double rad = hgt * (.28 + (1 - u * u) * .38) * (.7 + r.nextDouble() * .5);
+                double cy = cl[1] - rad * (.35 + r.nextDouble() * .5);
+                puffs[k] = new double[]{cx, cy, rad};
+            }
+            float blur = (float) (hgt * .22 + 4);
+            // ombre du dessous, gris-bleu, décalée vers le bas
+            p.setMaskFilter(new android.graphics.BlurMaskFilter(blur * 1.4f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            p.setColor(alpha(c("#aebbcc"), .42 * (.6 + sc * .4)));
+            for (double[] pf : puffs) cv.drawCircle((float) pf[0], (float) (pf[1] + pf[2] * .32), (float) (pf[2] * .95), p);
+            // corps blanc, éclairé par le haut
+            p.setMaskFilter(new android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            p.setColor(alpha(c("#f4f7fb"), .5 * (.55 + sc * .45)));
+            for (double[] pf : puffs) cv.drawCircle((float) pf[0], (float) pf[1], (float) (pf[2] * .82), p);
+            p.setMaskFilter(new android.graphics.BlurMaskFilter(blur * .7f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            p.setColor(alpha(WHITE, .45 * (.5 + sc * .5)));
+            for (double[] pf : puffs) cv.drawCircle((float) (pf[0] - pf[2] * .12), (float) (pf[1] - pf[2] * .22), (float) (pf[2] * .55), p);
         }
         return out;
+    }
+
+    /** Opacité du ciel de l'illustration (masque), pour poser les nuages derrière le paysage. */
+    static Bitmap skyAlpha(Context ctx, String seasonId, int width, int height) {
+        Bitmap img = asset(ctx, image(seasonId));
+        if (img == null) return null;
+        int[] px = new int[W * H];
+        img.getPixels(px, 0, W, 0, 0, W, H);
+        img.recycle();
+        int[] a = skyMask(ctx, px);
+        for (int i = 0; i < a.length; i++) a[i] <<= 24;
+        Bitmap m = Bitmap.createBitmap(a, W, H, Bitmap.Config.ARGB_8888);
+        if (width == W && height == H) return m;
+        Bitmap sc = Bitmap.createScaledBitmap(m, width, height, true);
+        m.recycle();
+        return sc;
     }
 
     /* ===== Moment de la journée : 0 aube, 1 jour, 2 crépuscule, 3 nuit ===== */

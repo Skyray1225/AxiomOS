@@ -594,8 +594,18 @@ class SceneView extends FrameLayout {
 
     private void setLandscape(Bitmap b, boolean fade) {
         landBmp = b;
+        if (wx != null) wx.setTone(landIdx, "halloween".equals(landSeason)); // nuages et brume aux couleurs du moment
         final String sz = landSeason;
         final int idx = landIdx;
+        worker.execute(() -> { // ciel du paysage : les nuages de la météo passent derrière le décor
+            final Bitmap mask = Landscape.skyAlpha(getContext(), sz, Math.round(100 * vw), Math.round(100 * vh));
+            ui.post(() -> {
+                if (idx == landIdx && sz.equals(landSeason) && wx != null) {
+                    wx.setSkyMask(mask);
+                    if (landBmp != null) sendBackdrop();
+                }
+            });
+        });
         worker.execute(() -> { // arbres du paysage, pour les feuilles et les lucioles
             final java.util.List<Landscape.Tree> t = Landscape.trees(idx, sz);
             ui.post(() -> {

@@ -11,6 +11,7 @@ import android.graphics.ColorMatrixColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.os.SystemClock;
@@ -67,8 +68,29 @@ class WeatherView extends FrameLayout {
         precip.layout(0, 0, r - l, Math.round((b - t) * .7f));
     }
 
+    private Bitmap cloudSrc, skyMask;
+
     void setCloudBitmap(Bitmap b) {
-        clouds.setImageBitmap(b);
+        cloudSrc = b;
+        composeClouds();
+    }
+
+    /** Ciel du paysage : les nuages passent derrière les montagnes et les arbres. */
+    void setSkyMask(Bitmap m) {
+        skyMask = m;
+        composeClouds();
+    }
+
+    private void composeClouds() {
+        if (cloudSrc == null) return;
+        if (skyMask == null) { clouds.setImageBitmap(cloudSrc); return; }
+        Bitmap out = Bitmap.createBitmap(cloudSrc.getWidth(), cloudSrc.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        c.drawBitmap(cloudSrc, 0, 0, null);
+        Paint in = new Paint(Paint.FILTER_BITMAP_FLAG);
+        in.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+        c.drawBitmap(skyMask, null, new android.graphics.Rect(0, 0, out.getWidth(), out.getHeight()), in);
+        clouds.setImageBitmap(out);
     }
 
     /** Code météo WMO -> ambiance du paysage. */
@@ -105,7 +127,7 @@ class WeatherView extends FrameLayout {
             case OVERCAST: return .55f;
             case RAIN: case SNOW: return .8f;
             case STORM: return 1;
-            case FOG: return .35f;
+            case FOG: return .2f;
             default: return 0;
         }
     }
@@ -125,16 +147,28 @@ class WeatherView extends FrameLayout {
         night = n;
         veil.update();
         fog.invalidate();
-        // nuit : nuages assombris et désaturés (brightness .55, saturate .6)
-        if (n) {
-            ColorMatrix m = new ColorMatrix();
-            m.setSaturation(.6f);
-            ColorMatrix b = new ColorMatrix();
-            b.setScale(.55f, .55f, .55f, 1);
-            m.postConcat(b);
-            clouds.setColorFilter(new ColorMatrixColorFilter(m));
-        } else clouds.clearColorFilter();
         precip.night = n;
+    }
+
+    private int tone = -1;
+    private boolean spooky;
+
+    /**
+     * Teinte des nuages et de la brume selon le moment (0 aube dorée, 1 jour, 2 crépuscule rosé,
+     * 3 nuit bleutée et sombre) et le thème (Halloween : lavande, comme son illustration).
+     */
+    void setTone(int idx, boolean halloween) {
+        if (idx == tone && halloween == spooky) return;
+        tone = idx;
+        spooky = halloween;
+        float[][] k = {{1f, .92f, .86f}, {1f, 1f, 1f}, {.95f, .86f, .88f}, {.42f, .48f, .64f}};
+        float[] t = k[Math.max(0, Math.min(3, idx))].clone();
+        if (halloween) { t[0] *= .88f; t[1] *= .82f; t[2] *= .96f; }
+        ColorMatrix m = new ColorMatrix();
+        m.setScale(t[0], t[1], t[2], 1);
+        clouds.setColorFilter(new ColorMatrixColorFilter(m));
+        fog.tint = (Math.round(255 * t[0]) << 16) | (Math.round(255 * t[1]) << 8) | Math.round(255 * t[2]);
+        fog.invalidate();
     }
 
     void setAnimations(boolean on) {
@@ -248,41 +282,64 @@ class WeatherView extends FrameLayout {
     /* ===== Brume : bande claire en bas, deux nappes plus denses ===== */
 
     private class Fog extends View {
+        int tint = 0xFFFFFF; // multiplicateur de couleur (moment, thème)
+
         Fog(Context ctx) {
             super(ctx);
         }
 
+        private Bitmap cache; // dessinée une fois (bords flous) puis seulement recopiée
+        private int cacheKey;
+
         @Override
         protected void onDraw(Canvas c) {
-            paint(c, getWidth(), getHeight());
+            int w = getWidth(), h = getHeight();
+            if (w == 0 || h == 0) return;
+            int key = tint * 31 + (night ? 1 : 0) + w * 7 + h;
+            if (cache == null || key != cacheKey) {
+                if (cache != null) cache.recycle();
+                cache = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                paint(new Canvas(cache), w, h);
+                cacheKey = key;
+            }
+            c.drawBitmap(cache, 0, 0, null);
         }
 
+        /**
+         * Brume en papier découpé : trois bandes claires au bord ondulé, de plus en plus denses vers
+         * le bas, posées sur le paysage entre les plans, avec un voile léger par-dessus.
+         */
         void paint(Canvas c, int w, int h) {
-            float k = night ? .45f : 1; // la nuit, brightness(.45)
-            int base = dim(0xECEFF1, k);
-            Paint p = new Paint();
-            p.setShader(new LinearGradient(0, 0, 0, h, new int[]{base, base | 0x8C000000, base | 0xBF000000, base | 0x73000000},
-                    new float[]{.3f, .58f, .78f, 1}, Shader.TileMode.CLAMP));
+            int base = mul(0xF2F4F6);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setShader(new LinearGradient(0, 0, 0, h, new int[]{base, base | 0x26000000, base | 0x40000000},
+                    new float[]{.4f, .65f, 1}, Shader.TileMode.CLAMP));
             c.drawRect(0, 0, w, h, p);
-            // ::before : inset 35 % -30 % 10 % -30 %, deux ellipses radiales
-            float bl = -.3f * w, bt = .35f * h, bw = 1.6f * w, bh = .55f * h;
-            int white = dim(0xFFFFFF, k);
-            nappe(c, p, bl + .3f * bw, bt + .5f * bh, .3f * bw, .22f * bh, white | 0x8C000000);
-            nappe(c, p, bl + .72f * bw, bt + .6f * bh, .28f * bw, .18f * bh, white | 0x80000000);
+            p.setShader(null);
+            float[][] bands = {{.58f, .018f, .0042f, .2f, 1.2f}, {.68f, .022f, .0036f, .26f, 3.1f}, {.8f, .026f, .003f, .32f, 5.3f}};
+            Paint soft = new Paint(Paint.ANTI_ALIAS_FLAG);
+            soft.setMaskFilter(new android.graphics.BlurMaskFilter(.006f * w, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            for (float[] b : bands) {
+                Path band = new Path();
+                band.moveTo(-20, h);
+                for (int x = -20; x <= w + 20; x += 12) {
+                    double xx = x / (double) w * 1920;
+                    double y = b[0] * h + Math.sin(xx * b[2] + b[4]) * b[1] * h + Math.sin(xx * b[2] * 2.3 + b[4] * 1.7) * b[1] * .4 * h;
+                    band.lineTo(x, (float) y);
+                }
+                band.lineTo(w + 20, h);
+                band.close();
+                soft.setColor(base | Math.round(b[3] * 255) << 24);
+                c.drawPath(band, soft);
+            }
         }
 
-        private void nappe(Canvas c, Paint p, float cx, float cy, float rx, float ry, int color) {
-            RadialGradient g = new RadialGradient(0, 0, 1, new int[]{color, color & 0x00FFFFFF}, new float[]{0, .7f}, Shader.TileMode.CLAMP);
-            Matrix m = new Matrix();
-            m.setScale(rx, ry);
-            m.postTranslate(cx, cy);
-            g.setLocalMatrix(m);
-            p.setShader(g);
-            c.drawRect(cx - rx, cy - ry, cx + rx, cy + ry, p);
-        }
-
-        private int dim(int rgb, float k) {
-            return Math.round((rgb >> 16 & 255) * k) << 16 | Math.round((rgb >> 8 & 255) * k) << 8 | Math.round((rgb & 255) * k);
+        private int mul(int rgb) {
+            float k = night ? .55f : 1;
+            int r = Math.round((rgb >> 16 & 255) * (tint >> 16 & 255) / 255f * k);
+            int g = Math.round((rgb >> 8 & 255) * (tint >> 8 & 255) / 255f * k);
+            int b = Math.round((rgb & 255) * (tint & 255) / 255f * k);
+            return r << 16 | g << 8 | b;
         }
     }
 
