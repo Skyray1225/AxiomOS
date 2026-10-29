@@ -1,5 +1,6 @@
 # Sorties de compilation
 launcher/android/build/
+native/build/
 *.apk
 *.apk.idsig
 __pycache__/
