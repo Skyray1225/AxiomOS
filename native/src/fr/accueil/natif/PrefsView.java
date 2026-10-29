@@ -19,6 +19,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
+import android.view.animation.AccelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -44,7 +45,7 @@ class PrefsView extends FrameLayout {
     private final float vw;
     private final ThumbView[] thumbs = new ThumbView[6];
     private final LinearLayout[] cards = new LinearLayout[6];
-    private final LinearLayout animRow;
+    private final LinearLayout sheet, animRow;
     private final SwitchView animSwitch;
     private int row = 0, card = 1; // row 0 = thèmes, 1 = animations
     private String theme = "photo";
@@ -55,7 +56,7 @@ class PrefsView extends FrameLayout {
         this.vw = vw;
         setBackgroundColor(0x73080C12);
 
-        LinearLayout box = new LinearLayout(ctx);
+        LinearLayout box = sheet = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setClipChildren(false); // la carte sélectionnée se soulève
         box.setPadding(px(2.6f), px(2.2f), px(2.6f), px(1.7f));
@@ -144,6 +145,29 @@ class PrefsView extends FrameLayout {
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : null);
         render(false);
+    }
+
+    /** Ouverture : le voile apparaît en fondu, la carte monte légèrement en grandissant. */
+    void show() {
+        animate().cancel();
+        sheet.animate().cancel();
+        setVisibility(VISIBLE);
+        setAlpha(0);
+        sheet.setAlpha(0);
+        sheet.setScaleX(.96f);
+        sheet.setScaleY(.96f);
+        sheet.setTranslationY(1.5f * vw);
+        animate().alpha(1).setStartDelay(0).setDuration(220);
+        sheet.animate().alpha(1).scaleX(1).scaleY(1).translationY(0).setDuration(380).setInterpolator(MainActivity.EASE);
+    }
+
+    /** Fermeture, plus rapide : la carte redescend un peu en s'effaçant, puis le voile disparaît. */
+    void hide() {
+        sheet.animate().cancel();
+        sheet.animate().alpha(0).scaleX(.97f).scaleY(.97f).translationY(.8f * vw).setDuration(180)
+                .setInterpolator(new AccelerateInterpolator());
+        animate().cancel();
+        animate().alpha(0).setStartDelay(60).setDuration(180).withEndAction(() -> setVisibility(GONE));
     }
 
     void setAnimations(boolean on) {

@@ -731,13 +731,13 @@ public class MainActivity extends Activity implements PrefsView.Host {
         gearBtn.setFocus(false);
         prefsBtn.setFocus(false);
         prefs.open("photo", scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), SceneView.clockText());
-        prefs.setVisibility(View.VISIBLE);
+        prefs.show();
     }
 
     @Override
     public void closePrefs() {
         prefsOpen = false;
-        prefs.setVisibility(View.GONE);
+        prefs.hide();
         selectTop(false);
     }
 
