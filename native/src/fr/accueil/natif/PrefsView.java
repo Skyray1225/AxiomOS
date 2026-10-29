@@ -39,6 +39,7 @@ class PrefsView extends FrameLayout {
         void setAnimations(boolean on);
         void setLifeFx(boolean on);
         void setHalloween(boolean on);
+        void setNoel(boolean on);
         void closePrefs();
         String minMode();
         void cycleMinMode(int dir);
@@ -55,14 +56,14 @@ class PrefsView extends FrameLayout {
     private final LinearLayout[] cards = new LinearLayout[6];
     private final TextView[] checks = new TextView[6];
     private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
-    private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow;
+    private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow;
     private final TextView darkValue;
-    private final SwitchView animSwitch, lifeSwitch, halSwitch;
+    private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch;
     private int row = 0, card = 1;
     private String theme = "photo";
     private boolean light;
 
-    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn, boolean halOn) {
+    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn, boolean halOn, boolean noelOn) {
         super(ctx);
         this.host = host;
         this.vw = vw;
@@ -157,6 +158,13 @@ class PrefsView extends FrameLayout {
         hlp.topMargin = px(.5f);
         box.addView(halRow, hlp);
 
+        noelRow = row("Décor de Noël", "Sucres d'orge, cadeaux, maison en pain d'épices, traîneau");
+        noelSwitch = new SwitchView(ctx, vw, noelOn);
+        noelRow.addView(noelSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.topMargin = px(.5f);
+        box.addView(noelRow, nlp);
+
         TextView hint = text("← → choisir · OK appliquer · ↑ ↓ naviguer · Retour fermer", .95f, 400, .55f);
         hint.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -182,7 +190,7 @@ class PrefsView extends FrameLayout {
     /** Rangées du bas : « apparence » (en Minimal seulement), animations, effets de saison (en Thinking seulement). */
     private String[] rows() {
         return "minimal".equals(theme) ? new String[]{"themes", "dark", "anim"}
-                : "dessin".equals(theme) ? new String[]{"themes", "anim", "life", "halloween"} : new String[]{"themes", "anim"};
+                : "dessin".equals(theme) ? new String[]{"themes", "anim", "life", "halloween", "noel"} : new String[]{"themes", "anim"};
     }
 
     /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
@@ -194,6 +202,7 @@ class PrefsView extends FrameLayout {
         darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
         lifeRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
         halRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
+        noelRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
         render(false);
     }
 
@@ -240,6 +249,10 @@ class PrefsView extends FrameLayout {
         halSwitch.set(on);
     }
 
+    void setNoel(boolean on) {
+        noelSwitch.set(on);
+    }
+
     /** Version claire (Minimal clair) ou sombre (tous les autres cas), comme dans la version web. */
     void setLight(boolean l) {
         light = l;
@@ -261,6 +274,7 @@ class PrefsView extends FrameLayout {
         animSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         lifeSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         halSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
+        noelSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         for (ThumbView t : thumbs) t.setRingColor(l ? 0xE61E2A24 : 0xFFFFFFFF);
         render(false);
     }
@@ -283,6 +297,7 @@ class PrefsView extends FrameLayout {
                 else if ("dark".equals(rows[row])) host.cycleMinMode(d);
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
+                else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -292,6 +307,7 @@ class PrefsView extends FrameLayout {
                 else if ("dark".equals(rows[row])) host.cycleMinMode(1);
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
+                else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_BACK:
@@ -321,6 +337,7 @@ class PrefsView extends FrameLayout {
         animRow.setBackground(rowBg("anim".equals(rows[row])));
         lifeRow.setBackground(rowBg("life".equals(rows[row])));
         halRow.setBackground(rowBg("halloween".equals(rows[row])));
+        noelRow.setBackground(rowBg("noel".equals(rows[row])));
     }
 
     private GradientDrawable rowBg(boolean sel) {

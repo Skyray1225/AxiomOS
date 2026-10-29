@@ -51,13 +51,14 @@ public class AccueilDream extends DreamService {
     @Override
     public void onDreamingStarted() {
         super.onDreamingStarted();
+        if (scene == null) return;
         scene.start();
         scene.burst(45000); // Thinking : la pluie ou la neige s'anime au début
     }
 
     @Override
     public void onDreamingStopped() {
-        scene.stop();
+        if (scene != null) scene.stop(); // la fenêtre peut déjà être détachée
         super.onDreamingStopped();
     }
 

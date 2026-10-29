@@ -554,6 +554,7 @@ class SceneView extends FrameLayout {
     String seasonNow() {
         if (Landscape.season(forcedSeason) != null) return forcedSeason;
         if (store.halloween) return "halloween";
+        if (store.noel) return "noel";
         Calendar c = now();
         return Landscape.seasonByDate(c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
     }

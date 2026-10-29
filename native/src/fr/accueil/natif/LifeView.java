@@ -76,6 +76,32 @@ class LifeView extends View {
     }
 
     private final List<Ghost> ghosts = new ArrayList<>();
+
+    /** Traîneau du père Noël : passe au loin, en haut du ciel, toutes les 2 à 3 minutes. */
+    private static final class Sleigh {
+        float x, y, dir, speed, ph;
+    }
+
+    private Sleigh sleigh;
+    private final Runnable sleighTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!"noel".equals(season) || !enabled || !running) return;
+            Sleigh sl = new Sleigh();
+            sl.dir = rnd.nextFloat() < .5f ? 1 : -1;
+            sl.x = sl.dir > 0 ? -160 : Landscape.W + 160;
+            sl.y = 45 + rnd.nextFloat() * 35; // au-dessus de l'heure
+            sl.speed = 150 + rnd.nextFloat() * 30;
+            sleigh = sl;
+            burst((long) ((Landscape.W + 320) / sl.speed * 1000) + 500); // anime le temps de la traversée
+            postDelayed(this, 120000 + rnd.nextInt(60000));
+        }
+    };
+
+    private void scheduleSleigh(long firstMs) {
+        removeCallbacks(sleighTick);
+        if ("noel".equals(season) && enabled && running) postDelayed(sleighTick, firstMs);
+    }
     private final android.graphics.Path ghostPath = new android.graphics.Path();
 
     LifeView(Context ctx) {
@@ -95,6 +121,7 @@ class LifeView extends View {
             if (tr.layer >= 3) groves.add(tr);
         }
         if (changed) clearAll();
+        if (changed) scheduleSleigh(20000 + rnd.nextInt(20000)); // le premier passage peu après l'arrivée
         sync();
     }
 
@@ -107,11 +134,13 @@ class LifeView extends View {
     void setActive(boolean on) {
         enabled = on;
         if (!on) clearAll();
+        scheduleSleigh(20000);
         sync();
     }
 
     void start() {
         running = true;
+        scheduleSleigh(20000 + rnd.nextInt(20000));
         sync();
     }
 
@@ -119,6 +148,7 @@ class LifeView extends View {
         running = false;
         looping = false;
         removeCallbacks(frame);
+        removeCallbacks(sleighTick);
     }
 
     void burst(long ms) {
@@ -156,6 +186,7 @@ class LifeView extends View {
         butterflies.clear();
         stars.clear();
         ghosts.clear();
+        sleigh = null;
         invalidate();
     }
 
@@ -165,7 +196,7 @@ class LifeView extends View {
             return;
         }
         if (looping || !active()) return;
-        if (!leavesWanted() && !butterfliesWanted() && !fliesWanted() && !starsWanted() && !ghostsWanted()) return;
+        if (!leavesWanted() && !butterfliesWanted() && !fliesWanted() && !starsWanted() && !ghostsWanted() && sleigh == null) return;
         looping = true;
         last = SystemClock.uptimeMillis();
         postDelayed(frame, FRAME_MS);
@@ -180,7 +211,7 @@ class LifeView extends View {
             last = t;
             step(dt, active());
             invalidate();
-            if (active() || !leaves.isEmpty() || !flies.isEmpty() || !butterflies.isEmpty() || !stars.isEmpty() || !ghosts.isEmpty())
+            if (active() || !leaves.isEmpty() || !flies.isEmpty() || !butterflies.isEmpty() || !stars.isEmpty() || !ghosts.isEmpty() || sleigh != null)
                 postDelayed(this, FRAME_MS);
             else looping = false; // fin de l'épisode : plus rien ne bouge
         }
@@ -227,6 +258,13 @@ class LifeView extends View {
                 }
             }
         } else butterflies.clear();
+
+        // traîneau du père Noël
+        if (sleigh != null) {
+            sleigh.x += sleigh.dir * sleigh.speed * dt;
+            sleigh.ph += dt;
+            if (sleigh.x < -200 || sleigh.x > Landscape.W + 200) sleigh = null;
+        }
 
         // fantômes d'Halloween
         if (ghostsWanted()) {
@@ -414,7 +452,7 @@ class LifeView extends View {
 
     @Override
     protected void onDraw(Canvas c) {
-        if (leaves.isEmpty() && flies.isEmpty() && butterflies.isEmpty() && stars.isEmpty() && ghosts.isEmpty()) return;
+        if (leaves.isEmpty() && flies.isEmpty() && butterflies.isEmpty() && stars.isEmpty() && ghosts.isEmpty() && sleigh == null) return;
         float s = Math.max(getWidth() / (float) Landscape.W, getHeight() / (float) Landscape.H);
         c.save();
         c.translate((getWidth() - Landscape.W * s) / 2, (getHeight() - Landscape.H * s) / 2);
@@ -459,6 +497,7 @@ class LifeView extends View {
         }
 
         for (Ghost gh : ghosts) drawGhost(c, gh);
+        if (sleigh != null) drawSleigh(c, sleigh);
 
         Bitmap g = flies.isEmpty() ? null : glowSprite();
         for (Fly f : flies) {
@@ -554,6 +593,105 @@ class LifeView extends View {
         c.drawOval(oval, paint);
         oval.set(r * .28f, r * .25f, r * .5f, r * .55f);
         c.drawOval(oval, paint);
+        c.restore();
+    }
+
+    /**
+     * Traîneau vu de loin : quatre rennes au galop (le premier au nez rouge), rênes, traîneau rouge,
+     * père Noël et sa hotte, traînée d'étincelles dorées. Ombre chinoise douce le jour, éclairée la nuit.
+     */
+    private void drawSleigh(Canvas c, Sleigh sl) {
+        boolean night = moment == 3;
+        float bob = (float) Math.sin(sl.ph * 2.2f) * 4;
+        c.save();
+        c.translate(sl.x, sl.y + bob);
+        c.scale(sl.dir, 1);
+        c.rotate(-3);
+        // étincelles derrière
+        for (int k = 0; k < 10; k++) {
+            float tx = -14 - k * 9, ty = -6 + (float) Math.sin(sl.ph * 6 + k) * 3 + k * .8f;
+            float tw = (float) Math.abs(Math.sin(sl.ph * 9 + k * 1.7f));
+            paint.setColor(0xFFFFE08A);
+            paint.setAlpha(Math.round(220 * (1 - k / 10f) * tw));
+            c.drawCircle(tx, ty, 1.6f - k * .08f, paint);
+        }
+        int fur = night ? 0xFF8C6A4E : 0xFF6B4A2E, red = 0xFFC0272D, dark = night ? 0xFF3A2A20 : 0xFF2E2420;
+        // traîneau : patin recourbé et caisse rouge
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeWidth(1.6f);
+        paint.setColor(0xFFE2B547);
+        paint.setAlpha(255);
+        android.graphics.Path run = new android.graphics.Path();
+        run.moveTo(-4, 0);
+        run.lineTo(26, 0);
+        run.quadTo(33, 0, 32, -6);
+        c.drawPath(run, paint);
+        paint.setStyle(Paint.Style.FILL);
+        android.graphics.Path body = new android.graphics.Path();
+        body.moveTo(0, -3);
+        body.lineTo(25, -3);
+        body.quadTo(30, -6, 29, -12);
+        body.lineTo(4, -12);
+        body.quadTo(-1, -12, 0, -3);
+        body.close();
+        paint.setColor(red);
+        c.drawPath(body, paint);
+        // hotte et père Noël
+        paint.setColor(0xFF7A5232);
+        c.drawOval(new RectF(1, -21, 13, -10), paint);
+        paint.setColor(red);
+        c.drawOval(new RectF(12, -21, 22, -10), paint);
+        paint.setColor(0xFFF2D2B6);
+        c.drawCircle(18, -23, 3, paint);
+        paint.setColor(0xFFFFFFFF);
+        c.drawOval(new RectF(16.5f, -23, 22, -18.5f), paint); // barbe
+        paint.setColor(red);
+        android.graphics.Path hat = new android.graphics.Path();
+        hat.moveTo(14.5f, -24);
+        hat.lineTo(21, -25);
+        hat.lineTo(14, -30);
+        hat.close();
+        c.drawPath(hat, paint);
+        paint.setColor(0xFFFFFFFF);
+        c.drawCircle(13.6f, -30, 1.3f, paint);
+        // rênes
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(.8f);
+        paint.setColor(dark);
+        c.drawLine(22, -15, 44, -13, paint);
+        c.drawLine(44, -13, 104, -13, paint);
+        paint.setStyle(Paint.Style.FILL);
+        // rennes
+        for (int k = 0; k < 4; k++) {
+            float cx = 46 + k * 19, gal = (float) Math.sin(sl.ph * 10 + k * .9f);
+            float cy = -12 + gal * 1.2f;
+            paint.setColor(fur);
+            c.drawOval(new RectF(cx - 7, cy - 3.2f, cx + 6, cy + 3.2f), paint);
+            c.drawOval(new RectF(cx + 4, cy - 9, cx + 9, cy - 4), paint); // tête
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1.4f);
+            c.drawLine(cx + 4, cy - 1, cx + 6, cy - 6, paint); // cou
+            paint.setStrokeWidth(1.1f);
+            // pattes : avant et arrière en opposition (galop)
+            c.drawLine(cx + 4, cy + 2, cx + 4 + gal * 4 + 3, cy + 8, paint);
+            c.drawLine(cx + 2, cy + 2, cx + 2 + gal * 3 + 2, cy + 8, paint);
+            c.drawLine(cx - 5, cy + 2, cx - 5 - gal * 4 - 3, cy + 8, paint);
+            c.drawLine(cx - 3, cy + 2, cx - 3 - gal * 3 - 2, cy + 8, paint);
+            paint.setColor(dark);
+            paint.setStrokeWidth(.8f);
+            c.drawLine(cx + 6, cy - 9, cx + 4, cy - 13, paint); // bois
+            c.drawLine(cx + 5, cy - 11, cx + 3, cy - 12, paint);
+            c.drawLine(cx + 7.5f, cy - 9, cx + 8.5f, cy - 13, paint);
+            paint.setStyle(Paint.Style.FILL);
+            if (k == 3) { // nez rouge de Rudolph, qui brille
+                paint.setShader(new RadialGradient(cx + 9.5f, cy - 6, 6, 0x99FF3A3A, 0x00FF3A3A, Shader.TileMode.CLAMP));
+                c.drawCircle(cx + 9.5f, cy - 6, 6, paint);
+                paint.setShader(null);
+                paint.setColor(0xFFFF3A3A);
+                c.drawCircle(cx + 9.5f, cy - 6, 1.4f, paint);
+            }
+        }
         c.restore();
     }
 
