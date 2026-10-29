@@ -29,6 +29,8 @@ class DockView extends FrameLayout {
     private Bitmap backdrop;
     private int tint = 0x5C1A1C20; // rgba(26,28,32,.36) sur la photo floutée
     private int screenW;
+    private int glassTop, glassBottom; // Thinking : verre clair en dégradé (160°) au lieu d'une teinte unie
+    private final Paint glassGrad = new Paint();
 
     DockView(Context ctx, float radius) {
         super(ctx);
@@ -57,6 +59,27 @@ class DockView extends FrameLayout {
         invalidate();
     }
 
+    /** Verre en dégradé (Thinking : blanc le jour, bleu nuit la nuit), liseré plus marqué. */
+    void setGlass(int top, int bottom, int edgeColor, int highlightColor) {
+        glassTop = top;
+        glassBottom = bottom;
+        edge.setColor(edgeColor);
+        highlight.setColor(highlightColor);
+        updateGlass();
+        invalidate();
+    }
+
+    private void updateGlass() {
+        if (glassTop == 0 && glassBottom == 0) return;
+        float w = getWidth(), h = getHeight();
+        // 160° : du haut (légèrement à gauche) vers le bas
+        double a = Math.toRadians(160);
+        float dx = (float) Math.sin(a), dy = (float) -Math.cos(a);
+        float half = (Math.abs(w * dx) + Math.abs(h * dy)) / 2;
+        glassGrad.setShader(new android.graphics.LinearGradient(w / 2 - dx * half, h / 2 - dy * half, w / 2 + dx * half, h / 2 + dy * half,
+                glassTop, glassBottom, android.graphics.Shader.TileMode.CLAMP));
+    }
+
     void setScreenPosition(int left, int top, int width, int height, int screenWidth) {
         screenPos.set(left, top, left + width, top + height);
         screenW = screenWidth;
@@ -82,12 +105,14 @@ class DockView extends FrameLayout {
     @Override
     protected void onSizeChanged(int w, int h, int ow, int oh) {
         bounds.set(.5f, .5f, w - .5f, h - .5f);
+        updateGlass();
     }
 
     @Override
     protected void onDraw(Canvas c) {
         if (backdrop != null) c.drawBitmap(backdrop, src, bounds, glass);
-        c.drawColor(tint);
+        if (glassTop != 0 || glassBottom != 0) c.drawRect(0, 0, getWidth(), getHeight(), glassGrad);
+        else c.drawColor(tint);
         c.drawRect(radius, 0, getWidth() - radius, 1, highlight); // liseré clair en haut
         c.drawRoundRect(bounds, radius, radius, edge);
     }

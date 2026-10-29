@@ -169,11 +169,11 @@ class PrefsView extends FrameLayout {
     }
 
     /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
-    void open(String currentTheme, Bitmap photoMini, String clock) {
+    void open(String currentTheme, Bitmap photoMini, Bitmap landscape, String clock) {
         theme = currentTheme;
         row = 0;
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
-        for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : null);
+        for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : "dessin".equals(t.theme) ? landscape : null);
         darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
         render(false);
     }
@@ -456,6 +456,12 @@ class PrefsView extends FrameLayout {
                     dock(c, w, h, 0x7314161A, true);
                     break;
                 case "dessin":
+                    if (photo != null) { // le paysage de la saison et du moment
+                        c.drawBitmap(photo, null, new RectF(0, 0, w, h), p);
+                        clockText(c, w / 2, .14f * h, 2.2f * vw, 0xFF2C3A33, true);
+                        dock(c, w, h, 0x59FFFFFF, true);
+                        break;
+                    }
                     p.setShader(new LinearGradient(0, 0, 0, h, new int[]{0xFFB9DFF0, 0xFFDDF1F3, 0xFFF3F8EC}, null, Shader.TileMode.CLAMP));
                     c.drawRect(0, 0, w, h, p);
                     p.setShader(null);

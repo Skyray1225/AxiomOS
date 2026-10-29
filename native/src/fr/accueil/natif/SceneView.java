@@ -67,6 +67,15 @@ class SceneView extends FrameLayout {
     private ImageView[] photos;
     private VignetteView vignette;
     private AmbientView ambient;
+    private ImageView[] lands;        // Thinking : deux paysages, en fondu l'un sur l'autre
+    private WeatherView wx;           // Thinking : météo dans le paysage
+    private Bitmap landBmp;           // paysage affiché
+    private int landIdx = -1, landOn = 0;
+    private String landSeason;
+    String forcedSeason;              // test : --es saison hiver
+    int forcedCode = -1;              // test : --ei meteo 63
+    private ValueAnimator inkAnim;
+    private static boolean cacheCleaned;
     private final LinearLayout top;
     private final TextView greet, clock, date, temp;
     private View dot;
@@ -116,6 +125,23 @@ class SceneView extends FrameLayout {
             case "kids":
                 addView(new KidsBackground(ctx), new LayoutParams(full));
                 break;
+            case "dessin":
+                setBackgroundColor(0xFFE9EFE4);
+                lands = new ImageView[2];
+                for (int i = 0; i < 2; i++) {
+                    lands[i] = new ImageView(ctx);
+                    lands[i].setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    lands[i].setAlpha(0f);
+                    addView(lands[i], new LayoutParams(full));
+                }
+                wx = new WeatherView(ctx);
+                wx.setAnimations(store.animations);
+                addView(wx, new LayoutParams(full));
+                worker.execute(() -> {
+                    Bitmap c = Landscape.weatherClouds(w, h);
+                    ui.post(() -> wx.setCloudBitmap(c));
+                });
+                break;
         }
 
         // Bloc de l'heure
@@ -144,7 +170,7 @@ class SceneView extends FrameLayout {
         sub.setClipChildren(false);
         sub.addView(date);
         if (theme.weather) {
-            float gap = (theme == Theme.MINIMAL ? 1.2f : .8f) * vw;
+            float gap = (theme == Theme.MINIMAL || theme == Theme.THINKING ? 1.2f : .8f) * vw;
             dot = new View(ctx);
             LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(Math.round(.35f * vw), Math.round(.35f * vw));
             dl.leftMargin = dl.rightMargin = Math.round(gap);
@@ -153,7 +179,7 @@ class SceneView extends FrameLayout {
             wxBox.setGravity(Gravity.CENTER_VERTICAL);
             wxBox.setClipChildren(false);
             wxIcon = new ImageView(ctx);
-            int is = Math.round((theme == Theme.MINIMAL ? 1.4f : 1.35f) * vw);
+            int is = Math.round((theme == Theme.MINIMAL ? 1.4f : theme == Theme.THINKING ? 2.2f : 1.35f) * vw);
             wxBox.addView(wxIcon, new LinearLayout.LayoutParams(is, is));
             LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             tl.leftMargin = Math.round(.6f * vw);
@@ -187,10 +213,36 @@ class SceneView extends FrameLayout {
 
     AmbientView ambient() { return ambient; }
 
+    WeatherView weather() { return wx; }
+
+    /** Paysage du moment pour la miniature des Préférences : celui affiché, ou celui en cache (réduit). */
+    Bitmap landscape() {
+        if (landBmp != null) return landBmp;
+        java.io.File f = cacheFile(seasonNow(), Landscape.sceneForTime(now()), Math.round(100 * vw), Math.round(100 * vh));
+        if (!f.exists()) return null;
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inSampleSize = 4;
+        return BitmapFactory.decodeFile(f.getPath(), o);
+    }
+
+    /** Essais : météo forcée (--ei meteo 63, -1 = réelle). */
+    void refreshWeather() {
+        if (wx == null) return;
+        if (forcedCode >= 0) {
+            wxCode = forcedCode;
+            wx.setWeather(forcedCode, true);
+            showWeatherIcon();
+            if (landBmp != null) sendBackdrop();
+        }
+        weatherTick.run();
+    }
+
     /** Premier affichage : photo du moment, nuit et couleurs, tout de suite (sans fondu). */
     void showNow() {
         if (photos != null) showPhoto(photoForNow(), false);
         updateNight(false);
+        if (lands != null) showLandscape(false);
+        if (wx != null && forcedCode >= 0) wx.setWeather(forcedCode, false);
         tick();
     }
 
@@ -198,12 +250,37 @@ class SceneView extends FrameLayout {
     void start() {
         minuteTick.run();
         if (theme.weather) weatherTick.run();
+        if (wx != null) {
+            wx.start();
+            ui.removeCallbacks(burstTick);
+            ui.postDelayed(burstTick, BURST_EVERY);
+        }
     }
 
     void stop() {
         ui.removeCallbacks(minuteTick);
         ui.removeCallbacks(weatherTick);
+        ui.removeCallbacks(burstTick);
+        if (wx != null) wx.stop();
     }
+
+    /** Thinking : épisode d'animation de la pluie ou de la neige (arrivée sur l'accueil, touche). */
+    void burst(long ms) {
+        if (wx != null) wx.burst(ms);
+    }
+
+    void setAnimations(boolean on) {
+        if (wx != null) wx.setAnimations(on);
+    }
+
+    private static final long BURST_EVERY = 4 * 60 * 1000;
+    private final Runnable burstTick = new Runnable() { // 30 s d'animation toutes les 4 minutes
+        @Override
+        public void run() {
+            burst(30000);
+            ui.postDelayed(this, BURST_EVERY);
+        }
+    };
 
     void release() {
         stop();
@@ -250,6 +327,7 @@ class SceneView extends FrameLayout {
             tick();
             if (photos != null) showPhoto(photoForNow(), true);
             updateNight(true);
+            if (lands != null) showLandscape(true);
             ui.removeCallbacks(this);
             ui.postDelayed(this, 60000 - System.currentTimeMillis() % 60000 + 50);
         }
@@ -281,8 +359,14 @@ class SceneView extends FrameLayout {
 
     /** Nuit = du coucher du soleil + 40 min au lever - 40 min, à Perpignan (formule NOAA, comme la version web). */
     static boolean isNight(Calendar c) {
-        double rad = Math.PI / 180;
         int m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
+        double[] st = sunTimes(c);
+        return m < st[0] - 40 || m >= st[1] + 40;
+    }
+
+    /** Lever et coucher du soleil, en minutes locales (formule NOAA, précise à quelques minutes). */
+    static double[] sunTimes(Calendar c) {
+        double rad = Math.PI / 180;
         double g = 2 * Math.PI / 365 * (c.get(Calendar.DAY_OF_YEAR) - 1);
         double eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
                 - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
@@ -292,7 +376,7 @@ class SceneView extends FrameLayout {
                 - Math.tan(LAT * rad) * Math.tan(decl)) / rad;
         double tz = c.getTimeZone().getOffset(c.getTimeInMillis()) / 60000.0;
         double noon = 720 - 4 * LON - eqt + tz;
-        return m < noon - 4 * ha - 40 || m >= noon + 4 * ha + 40;
+        return new double[]{noon - 4 * ha, noon + 4 * ha};
     }
 
     void updateNight(boolean animate) {
@@ -305,6 +389,11 @@ class SceneView extends FrameLayout {
                 else vignette.setAlpha(n ? 1 : 0);
             }
             if (wxCode >= 0) showWeatherIcon();
+            if (wx != null) wx.setNight(n);
+            if (theme == Theme.THINKING) {
+                applyInk(animate);
+                if (landBmp != null) sendBackdrop();
+            }
         }
         if (theme == Theme.MINIMAL) applyInk(animate);
     }
@@ -314,6 +403,29 @@ class SceneView extends FrameLayout {
         if (theme == Theme.KIDS) { // bleu marine, salutation orange
             ink = 0xFF24456E;
             inkSoft = 0xBF24456E;
+        } else if (theme == Theme.THINKING) { // vert sombre le jour, crème la nuit (transition 2,5 s)
+            boolean n = Boolean.TRUE.equals(night);
+            dark = n;
+            int toInk = n ? 0xFFF4F1E8 : 0xFF2C3A33, toSoft = n ? 0xBFF4F1E8 : 0xB32C3A33;
+            float sr = 1.56f * vw; // text-shadow 0 2px 30px : blanc .35 le jour, noir .3 la nuit
+            int sc = n ? 0x4D000000 : 0x59FFFFFF;
+            for (TextView t : new TextView[]{clock, date, temp}) t.setShadowLayer(sr, 0, 2, sc);
+            if (inkAnim != null) inkAnim.cancel();
+            if (animate && inkSoft != 0) {
+                final int fromInk = ink, fromSoft = inkSoft;
+                final ArgbEvaluator ev = new ArgbEvaluator();
+                inkAnim = ValueAnimator.ofFloat(0, 1).setDuration(2500);
+                inkAnim.addUpdateListener(an -> {
+                    float f = an.getAnimatedFraction();
+                    ink = (int) ev.evaluate(f, fromInk, toInk);
+                    inkSoft = (int) ev.evaluate(f, fromSoft, toSoft);
+                    paintInk();
+                });
+                inkAnim.start();
+                return;
+            }
+            ink = toInk;
+            inkSoft = toSoft;
         } else if (theme != Theme.MINIMAL) {
             ink = Color.WHITE;
             inkSoft = theme == Theme.BULLIT ? 0x99FFFFFF : 0xDBFFFFFF;
@@ -333,6 +445,10 @@ class SceneView extends FrameLayout {
                 a.start();
             } else setBackgroundColor(bg);
         }
+        paintInk();
+    }
+
+    private void paintInk() {
         clock.setTextColor(ink);
         // opacité .9 dans la couleur, pas sur la vue : une vue transparente est dessinée
         // dans un calque à sa taille, qui couperait l'ombre du texte
@@ -381,7 +497,15 @@ class SceneView extends FrameLayout {
     };
 
     private void showWeather(double t, int code) {
+        if (forcedCode >= 0) code = forcedCode;
+        boolean first = wxCode < 0;
         wxCode = code;
+        if (wx != null) {
+            String before = wx.kind();
+            float va = wx.veilAlpha();
+            wx.setWeather(code, !first);
+            if (landBmp != null && (!before.equals(wx.kind()) || va != wx.veilAlpha())) sendBackdrop();
+        }
         temp.setText(Math.round(t) + "°");
         showWeatherIcon();
         dot.setVisibility(VISIBLE);
@@ -406,6 +530,124 @@ class SceneView extends FrameLayout {
     private void tintIcon() {
         wxIcon.setColorFilter(inkSoft | 0xFF000000);
         wxIcon.setImageAlpha(inkSoft >>> 24);
+    }
+
+    /* ===== Paysage dessiné (Thinking) : saison et moment de la journée ===== */
+
+    String seasonNow() {
+        if (Landscape.season(forcedSeason) != null) return forcedSeason;
+        Calendar c = now();
+        return Landscape.seasonByDate(c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
+    }
+
+    /**
+     * Paysage de la saison et du moment. Dessiné une fois (environ une seconde) puis gardé en cache :
+     * les fois suivantes, il s'affiche aussitôt. Changement de moment : fondu de 8 s, comme la version web.
+     */
+    void showLandscape(boolean animate) {
+        final int idx = Landscape.sceneForTime(now());
+        final String sz = seasonNow();
+        if (idx == landIdx && sz.equals(landSeason)) return;
+        landIdx = idx;
+        landSeason = sz;
+        final int w = Math.round(100 * vw), h = Math.round(100 * vh);
+        if (!animate) {
+            Bitmap cached = loadLandscape(sz, idx, w, h);
+            if (cached != null) {
+                setLandscape(cached, false);
+                prefetch(sz, w, h);
+                return;
+            }
+        }
+        worker.execute(() -> {
+            Bitmap b = loadLandscape(sz, idx, w, h);
+            if (b == null) {
+                b = Landscape.render(idx, sz, w, h);
+                saveLandscape(b, sz, idx, w, h);
+            }
+            final Bitmap fb = b;
+            ui.post(() -> {
+                if (idx == landIdx && sz.equals(landSeason)) setLandscape(fb, true);
+            });
+            prefetch(sz, w, h);
+        });
+    }
+
+    private void setLandscape(Bitmap b, boolean fade) {
+        landBmp = b;
+        final ImageView old = lands[landOn];
+        boolean first = old.getDrawable() == null;
+        landOn = 1 - landOn;
+        ImageView next = lands[landOn];
+        next.setImageBitmap(b);
+        next.animate().cancel();
+        old.animate().cancel();
+        if (!fade) {
+            next.setAlpha(1f);
+            old.setAlpha(0f);
+            old.setImageDrawable(null);
+        } else {
+            long ms = first ? 600 : 8000;
+            next.setAlpha(0f);
+            next.animate().alpha(1).setDuration(ms);
+            old.animate().alpha(0).setDuration(ms).withEndAction(() -> old.setImageDrawable(null));
+        }
+        sendBackdrop();
+    }
+
+    /** Les autres moments de la saison, dessinés à l'avance pour un changement sans attente. */
+    private void prefetch(final String sz, final int w, final int h) {
+        worker.execute(() -> {
+            for (int i = 0; i < 4; i++) {
+                if (cacheFile(sz, i, w, h).exists()) continue;
+                Bitmap b = Landscape.render(i, sz, w, h);
+                saveLandscape(b, sz, i, w, h);
+                b.recycle();
+            }
+        });
+    }
+
+    private java.io.File cacheFile(String sz, int idx, int w, int h) {
+        java.io.File dir = new java.io.File(getContext().getCacheDir(), "paysages");
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        if (!cacheCleaned) { // images d'une version précédente du dessin : supprimées
+            cacheCleaned = true;
+            java.io.File[] old = dir.listFiles();
+            if (old != null) for (java.io.File f : old)
+                if (!f.getName().startsWith("v" + Landscape.VERSION + "-")) //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+        }
+        return new java.io.File(dir, "v" + Landscape.VERSION + "-" + sz + "-" + idx + "-" + w + "x" + h + ".png");
+    }
+
+    private Bitmap loadLandscape(String sz, int idx, int w, int h) {
+        java.io.File f = cacheFile(sz, idx, w, h);
+        if (!f.exists()) return null;
+        return BitmapFactory.decodeFile(f.getPath());
+    }
+
+    private void saveLandscape(Bitmap b, String sz, int idx, int w, int h) {
+        java.io.File f = cacheFile(sz, idx, w, h), tmp = new java.io.File(f.getPath() + ".tmp");
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+            b.compress(Bitmap.CompressFormat.PNG, 100, out);
+        } catch (Exception e) {
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        tmp.renameTo(f);
+    }
+
+    /** Fond du dock en verre : le paysage et les calques de la météo, en petit (flouté ensuite par le dock). */
+    private void sendBackdrop() {
+        if (photoListener == null || landBmp == null) return;
+        int bw = 480, bh = Math.round(480 * vh / vw);
+        Bitmap small = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(small);
+        c.drawBitmap(landBmp, null, new android.graphics.Rect(0, 0, bw, bh), new Paint(Paint.FILTER_BITMAP_FLAG));
+        wx.drawStatic(c, bw, bh);
+        photoListener.onPhoto(small);
+        small.recycle();
     }
 
     /* ===== Photo de fond (Modern), renouvelée toutes les 2 heures ===== */

@@ -52,6 +52,7 @@ public class AccueilDream extends DreamService {
     public void onDreamingStarted() {
         super.onDreamingStarted();
         scene.start();
+        scene.burst(45000); // Thinking : la pluie ou la neige s'anime au début
     }
 
     @Override

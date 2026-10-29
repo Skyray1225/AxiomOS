@@ -128,7 +128,9 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         super.onCreate(savedInstanceState);
         store = new Store(this);
         store.unhideAllOnce();
-        theme = Theme.of(store.theme);
+        // essais : thème affiché sans être enregistré (am start -S ... --es themeEssai dessin)
+        String trial = getIntent().getStringExtra("themeEssai");
+        theme = Theme.of(trial != null && Theme.available(trial) ? trial : store.theme);
         Point size = new Point();
         getWindowManager().getDefaultDisplay().getRealSize(size);
         W = size.x;
@@ -145,6 +147,8 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         // Décor du thème : fond, salutation, heure, date et météo
         scene = new SceneView(this, W, H, theme, store);
         scene.forcedHour = getIntent().getFloatExtra("heure", Float.NaN);
+        scene.forcedSeason = getIntent().getStringExtra("saison");    // Thinking, essais : --es saison hiver
+        scene.forcedCode = getIntent().getIntExtra("meteo", -1);       // Thinking, essais : --ei meteo 63
         root.addView(scene, match());
 
         // Barre du haut : Préférences et Paramètres (flèche haut depuis le dock)
@@ -194,6 +198,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
             root.addView(dock, new FrameLayout.LayoutParams(0, 0));
             // Nom de l'appli sélectionnée, au-dessus du dock
             root.addView(title, wrap(Gravity.BOTTOM | Gravity.LEFT));
+            if (!theme.title) title.setVisibility(View.GONE); // Thinking : pas de nom au-dessus du dock
             layoutDock(VISIBLE);
         } else {
             buildArea(root);
@@ -259,7 +264,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         root.addView(intro, match());
 
         setContentView(root);
-        if (theme == Theme.MODERN) scene.setPhotoListener(dock::setBackdrop);
+        if (theme == Theme.MODERN || theme == Theme.THINKING) scene.setPhotoListener(dock::setBackdrop);
         scene.setInkListener(this::onInk);
         scene.showNow();
         onInk(scene.ink(), scene.inkSoft(), scene.isDark());
@@ -331,6 +336,15 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         if (intent.hasExtra("heure")) {
             scene.forcedHour = intent.getFloatExtra("heure", Float.NaN);
             scene.updateNight(true);
+            if (theme == Theme.THINKING) scene.showLandscape(true);
+        }
+        if (intent.hasExtra("saison")) {
+            scene.forcedSeason = intent.getStringExtra("saison");
+            if (theme == Theme.THINKING) scene.showLandscape(true);
+        }
+        if (intent.hasExtra("meteo") && scene.weather() != null) {
+            scene.forcedCode = intent.getIntExtra("meteo", -1);
+            scene.refreshWeather();
         }
         if (intent.getBooleanExtra("veille", false)) setSaverPreview(true);
         if (intent.getBooleanExtra("intro", false)) playIntro(intent.getIntExtra("introDelay", 0));
@@ -494,6 +508,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
 
     /** Relance le compte à rebours de la veille ; vrai si l'accueil était en veille. */
     private boolean wake() {
+        scene.burst(45000); // Thinking : la pluie ou la neige s'anime
         boolean was = idle;
         if (idle) setIdle(false);
         ui.removeCallbacks(goIdle);
@@ -897,6 +912,20 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
 
     /** Minimal : couleurs du texte (clair ou sombre) répercutées sur la liste, la barre et l'aide. */
     private void onInk(int ink, int inkSoft, boolean dark) {
+        if (theme == Theme.THINKING) { // verre clair le jour, bleu nuit la nuit ; textes et icônes de la couleur de l'heure
+            if (prefsBtn != null) {
+                prefsBtn.setInk(ink);
+                gearBtn.setInk(ink);
+                prefsBtn.setGlass(dark);
+                gearBtn.setGlass(dark);
+            }
+            if (dock != null) {
+                if (dark) dock.setGlass(0x3896AFD7, 0x2E142234, 0x40FFFFFF, 0x66FFFFFF);
+                else dock.setGlass(0x57FFFFFF, 0x14FFFFFF, 0x47FFFFFF, 0xB3FFFFFF);
+            }
+            if (hint != null) styleHint(hint, !dark);
+            return;
+        }
         if (theme != Theme.MINIMAL) return;
         for (DockItem t : tiles) ((ListRow) t).setInk(ink, inkSoft);
         if (prefsBtn != null) {
@@ -1025,7 +1054,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         prefsBtn.setFocus(false);
         if (!tiles.isEmpty()) tiles.get(focus).setSelected(false, false, false);
         ui.removeCallbacks(goIdle);
-        prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), SceneView.clockText());
+        prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), scene.landscape(), SceneView.clockText());
         prefs.setLight(theme == Theme.MINIMAL && !scene.isDark());
         prefs.show(animate);
     }
@@ -1144,6 +1173,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         store.animations = on;
         store.saveAnimations();
         prefs.setAnimations(on);
+        scene.setAnimations(on);
     }
 
     @Override
@@ -1164,7 +1194,10 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
      */
     private class PillButton extends LinearLayout {
         private final TextView label;
+        private ImageView iv;
         private int ink = Color.WHITE;
+        private boolean focused;
+        private Boolean nightGlass; // Thinking : verre clair (jour) ou bleu nuit
 
         PillButton(int icon, String text) {
             super(MainActivity.this);
@@ -1184,7 +1217,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
                 addView(label);
             } else {
                 setPadding(px(1.2f), 0, px(1.2f), 0);
-                ImageView iv = new ImageView(MainActivity.this);
+                iv = new ImageView(MainActivity.this);
                 iv.setImageResource(icon);
                 addView(iv, new LayoutParams(px(1.15f), px(1.15f)));
                 label.setTextSize(TypedValue.COMPLEX_UNIT_PX, .95f * vw);
@@ -1199,9 +1232,23 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         void setInk(int color) {
             ink = color;
             label.setTextColor(color);
+            if (iv != null) iv.setColorFilter(color);
+        }
+
+        void setGlass(boolean night) {
+            nightGlass = night;
+            setFocus(focused);
         }
 
         void setFocus(boolean on) {
+            focused = on;
+            if (nightGlass != null) { // Thinking : var(--glass), liseré var(--glass-edge), contour blanc à la sélection
+                int bg = nightGlass ? (on ? 0x6B142234 : 0x52142234) : (on ? 0x80FFFFFF : 0x52FFFFFF);
+                int edge = nightGlass ? 0x40FFFFFF : 0x8CFFFFFF;
+                setBackground(rounded(bg, 99 * vw, on ? px(.14f) : 1, on ? 0xFFFFFFFF : edge));
+                animate().alpha(on ? 1 : .9f).scaleX(on ? 1.06f : 1).scaleY(on ? 1.06f : 1).setDuration(350).setInterpolator(EASE);
+                return;
+            }
             if (theme == Theme.MINIMAL) {
                 label.setPaintFlags(on ? label.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
                         : label.getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);

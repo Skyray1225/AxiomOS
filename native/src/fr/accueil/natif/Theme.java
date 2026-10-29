@@ -3,7 +3,7 @@ package fr.accueil.natif;
 /**
  * Ce qui distingue les thèmes portés en natif (mesures en % de la largeur « vw » ou de la hauteur « vh »
  * de l'écran, reprises de la version web). Le dock prend trois formes : carrousel de 5 tuiles
- * (Modern, Ambient), grille de 6 colonnes (Bullit) ou liste de noms (Minimal).
+ * (Thinking, Modern, Ambient), grille de 6 colonnes (Bullit) ou liste de noms (Minimal).
  */
 final class Theme {
 
@@ -53,6 +53,10 @@ final class Theme {
     static final Theme MINIMAL = new Theme("minimal", LIST, 1, false, false, true, false, false,
             6, 14, 15, -.035f, 1.1f, .25f, 1.5f, .6f);
 
+    // Thinking : paysage dessiné, heure centrée en haut (11vw), date et météo dessous, sans majuscules
+    static final Theme THINKING = new Theme("dessin", CAROUSEL, 5, true, false, true, false, false,
+            0, 9, 11, -.02f, 1.7f, 0, 1.2f, 0);
+
     static final Theme KIDS = new Theme("kids", GRID, 3, false, true, false, false, false,
             0, 5, 4.2f, -.02f, 1.2f, 0, .3f, 0);
 
@@ -61,9 +65,12 @@ final class Theme {
         KIDS.clockWeight = 600;
         KIDS.subWeight = 600;
         KIDS.subCaps = false;
+        THINKING.center = true;
+        THINKING.subWeight = 300;
+        THINKING.subCaps = false;
     }
 
-    static final Theme[] ALL = {MODERN, BULLIT, AMBIENT, MINIMAL, KIDS};
+    static final Theme[] ALL = {THINKING, MODERN, BULLIT, AMBIENT, MINIMAL, KIDS};
 
     /** Thème enregistré, ou Modern s'il n'est pas (encore) porté en natif. */
     static Theme of(String id) {
