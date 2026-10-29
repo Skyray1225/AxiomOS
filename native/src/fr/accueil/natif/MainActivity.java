@@ -405,10 +405,15 @@ public class MainActivity extends Activity implements PrefsView.Host {
         if (!isArrow(k)) return super.dispatchKeyEvent(e);
         if (!down) return true;
 
-        if (editing && theme == Theme.MINIMAL) { // Minimal : ↑ ↓ déplacent l'appli, rien d'autre
+        if (editing && theme == Theme.MINIMAL) { // Minimal : ↑ ↓ déplacent, → épingle ou désépingle
             if (k == KeyEvent.KEYCODE_DPAD_UP) moveApp(-1);
             else if (k == KeyEvent.KEYCODE_DPAD_DOWN) moveApp(1);
-        } else if (editing) {
+            else if (k == KeyEvent.KEYCODE_DPAD_RIGHT) togglePin();
+        } else if (editing && theme.dock == Theme.CAROUSEL) { // Modern, Ambient : ← → déplacent, ↑ épingle
+            if (k == KeyEvent.KEYCODE_DPAD_RIGHT) moveApp(1);
+            else if (k == KeyEvent.KEYCODE_DPAD_LEFT) moveApp(-1);
+            else if (k == KeyEvent.KEYCODE_DPAD_UP) togglePin();
+        } else if (editing) { // Bullit : ← → déplacent, ↑ épingle, ↓ masque
             if (k == KeyEvent.KEYCODE_DPAD_RIGHT) moveApp(1);
             else if (k == KeyEvent.KEYCODE_DPAD_LEFT) moveApp(-1);
             else if (k == KeyEvent.KEYCODE_DPAD_DOWN) toggleHidden();
@@ -611,7 +616,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
     /** Applis du dock : favoris puis usage ; les masquées n'apparaissent qu'en mode édition. */
     private List<App> visibleApps() {
         List<App> all = store.ordered(allApps);
-        if (editing || theme == Theme.MINIMAL) return all; // Minimal : pas d'applis masquées
+        if (editing || theme != Theme.BULLIT) return all; // seul Bullit permet de masquer (et de démasquer)
         List<App> out = new ArrayList<>();
         for (App a : all) if (!store.hidden.contains(a.pkg)) out.add(a);
         return out.isEmpty() ? all : out; // jamais de dock vide
@@ -707,7 +712,7 @@ public class MainActivity extends Activity implements PrefsView.Host {
                 lp.leftMargin = i * (tileW + gap);
             }
             DockItem t = (DockItem) v;
-            t.setFlags(store.pins.contains(a.pkg), theme != Theme.MINIMAL && store.hidden.contains(a.pkg));
+            t.setFlags(store.pins.contains(a.pkg), theme == Theme.BULLIT && store.hidden.contains(a.pkg));
             t.setEditing(editing);
             track.addView(v, lp);
             tiles.add(t);
@@ -1060,8 +1065,9 @@ public class MainActivity extends Activity implements PrefsView.Host {
         LinearLayout h = new LinearLayout(this);
         h.setGravity(Gravity.CENTER_VERTICAL);
         h.setPadding(px(1.6f), px(.7f), px(1.6f), px(.7f));
-        String[][] parts = theme == Theme.MINIMAL ? new String[][]{{"↑ ↓", "Déplacer"}, {"Retour", "Terminer"}}
-                : new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"↓", "Masquer"}, {"OK", "Terminer"}};
+        String[][] parts = theme == Theme.MINIMAL ? new String[][]{{"↑ ↓", "Déplacer"}, {"→", "Épingler"}, {"Retour", "Terminer"}}
+                : theme == Theme.BULLIT ? new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"↓", "Masquer"}, {"OK", "Terminer"}}
+                : new String[][]{{"← →", "Déplacer"}, {"↑", "Épingler"}, {"OK", "Terminer"}};
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) {
                 View dot = new View(this);
