@@ -130,7 +130,10 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
         // Barre du haut : Préférences et Paramètres (flèche haut depuis le dock)
         bar = new LinearLayout(this);
-        bar.setClipChildren(false); // le bouton sélectionné grossit au-delà de la barre
+        // Marge intérieure : le bouton sélectionné grossit (×1,06) et son contour ne doit pas être coupé
+        int bp = px(.6f);
+        bar.setPadding(bp, bp, bp, bp);
+        bar.setClipToPadding(false); // sinon la marge intérieure sert de zone de découpe
         prefsBtn = new PillButton(R.drawable.ic_prefs, "Préférences");
         gearBtn = new PillButton(R.drawable.ic_gear, "Paramètres");
         bar.addView(prefsBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(2.5f)));
@@ -138,8 +141,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
         glp.leftMargin = px(1.2f);
         bar.addView(gearBtn, glp);
         FrameLayout.LayoutParams blp = wrap(Gravity.TOP | Gravity.RIGHT);
-        blp.topMargin = Math.round(5 * vh);
-        blp.rightMargin = px(3);
+        blp.topMargin = Math.round(5 * vh) - bp;
+        blp.rightMargin = px(3) - bp;
         root.addView(bar, blp);
 
         // Dock : 5 tuiles visibles
@@ -201,7 +204,8 @@ public class MainActivity extends Activity implements PrefsView.Host {
 
         Intent in = getIntent();
         if (in.getBooleanExtra("veille", false)) setSaverPreview(true);
-        else if (in.getBooleanExtra("intro", false) || (isDefaultHome() && bootIntroDue())) {
+        else if (in.getBooleanExtra("intro", false) || (isDefaultHome() ? bootIntroDue() : savedInstanceState == null)) {
+            // Accueil par défaut : une fois par démarrage de la box. Sinon (essais) : à chaque lancement à froid.
             intro.play(in.getIntExtra("introDelay", 500));
             lastIntro = SystemClock.elapsedRealtime();
         }
