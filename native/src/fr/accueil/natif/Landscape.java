@@ -86,6 +86,18 @@ final class Landscape {
         return "automne";
     }
 
+    /** Période d'Halloween : du 30 octobre au 1er novembre inclus. */
+    static boolean halloweenTime(java.util.Calendar c) {
+        int md = (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH);
+        return md >= 1030 && md <= 1101;
+    }
+
+    /** Période de Noël : du 1er au 25 décembre inclus. */
+    static boolean noelTime(java.util.Calendar c) {
+        int md = (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH);
+        return md >= 1201 && md <= 1225;
+    }
+
     /** Illustration de la saison (Halloween sur l'automne, Noël sur l'hiver). */
     private static String image(String seasonId) {
         return seasonId; // une illustration par saison, plus Halloween et Noël

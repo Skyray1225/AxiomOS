@@ -190,19 +190,30 @@ class PrefsView extends FrameLayout {
     /** Rangées du bas : « apparence » (en Minimal seulement), animations, effets de saison (en Thinking seulement). */
     private String[] rows() {
         return "minimal".equals(theme) ? new String[]{"themes", "dark", "anim"}
-                : "dessin".equals(theme) ? new String[]{"themes", "anim", "life", "halloween", "noel"} : new String[]{"themes", "anim"};
+                : "dessin".equals(theme) ? (halShown ? new String[]{"themes", "anim", "life", "halloween"}
+                : noelShown ? new String[]{"themes", "anim", "life", "noel"} : new String[]{"themes", "anim", "life"})
+                : new String[]{"themes", "anim"};
     }
 
     /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
-    void open(String currentTheme, Bitmap photoMini, Bitmap landscape, String clock) {
+    private boolean halShown, noelShown;
+
+    /** Rangées des décors de fête : en Thinking, et seulement pendant leur période. */
+    void setFestive(boolean halloween, boolean noel) {
+        halShown = halloween && "dessin".equals(theme);
+        noelShown = noel && "dessin".equals(theme);
+    }
+
+    void open(String currentTheme, Bitmap photoMini, Bitmap landscape, String clock, boolean halloweenTime, boolean noelTime) {
         theme = currentTheme;
+        setFestive(halloweenTime, noelTime);
         row = 0;
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : "dessin".equals(t.theme) ? landscape : null);
         darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
         lifeRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
-        halRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
-        noelRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
+        halRow.setVisibility(halShown ? VISIBLE : GONE);
+        noelRow.setVisibility(noelShown ? VISIBLE : GONE);
         render(false);
     }
 

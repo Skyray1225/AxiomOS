@@ -29,9 +29,9 @@ class Store {
     final Set<String> hidden = new LinkedHashSet<>();
     private final Map<String, double[]> usage = new HashMap<>(); // pkg -> {score, horodatage}
     boolean animations;
-    boolean lifeFx;
-    boolean halloween;
-    boolean noel; // Thinking : décor de Noël à la place de la saison // Thinking : décor d'Halloween à la place de la saison // Thinking : effets de saison (feuilles, papillons, lucioles, étoiles filantes)
+    boolean lifeFx;    // Thinking : effets de saison (feuilles, papillons, lucioles, étoiles filantes)
+    boolean halloween; // Thinking : décor d'Halloween pendant sa période (activé sauf si l'utilisateur l'a coupé)
+    boolean noel;      // Thinking : décor de Noël pendant sa période (idem)
     String theme, minMode; // thème ; apparence de Minimal : auto, light, dark
     // Kids : applis autorisées, code parent (4 flèches, ex. "U,U,L,R"), thème à retrouver en quittant Kids
     static final String[] KIDS_DEFAULT = {"com.google.android.youtube.tv", "com.disney.disneyplus", "com.vectorunit.purple.googleplay"};
@@ -49,8 +49,8 @@ class Store {
         hidden.addAll(h);
         animations = !"false".equals(sp.getString("animations", "true"));
         lifeFx = !"false".equals(sp.getString("effets", "true"));
-        halloween = "true".equals(sp.getString("halloween", "false"));
-        noel = "true".equals(sp.getString("noel", "false"));
+        halloween = !"false".equals(sp.getString("halloween2", "true")); // nouvelle clé : activé par défaut
+        noel = !"false".equals(sp.getString("noel2", "true"));
         theme = readString("theme", "photo");
         minMode = readString("minMode", "auto");
         kidsCode = readString("kidsCode", null);
@@ -119,9 +119,9 @@ class Store {
 
     void saveAnimations() { put("animations", animations ? "true" : "false"); }
 
-    void saveHalloween() { put("halloween", halloween ? "true" : "false"); }
+    void saveHalloween() { put("halloween2", halloween ? "true" : "false"); }
 
-    void saveNoel() { put("noel", noel ? "true" : "false"); }
+    void saveNoel() { put("noel2", noel ? "true" : "false"); }
 
     void saveLifeFx() { put("effets", lifeFx ? "true" : "false"); }
 

@@ -1056,7 +1056,9 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         prefsBtn.setFocus(false);
         if (!tiles.isEmpty()) tiles.get(focus).setSelected(false, false, false);
         ui.removeCallbacks(goIdle);
-        prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), scene.landscape(), SceneView.clockText());
+        java.util.Calendar today = java.util.Calendar.getInstance();
+        prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), scene.landscape(), SceneView.clockText(),
+                Landscape.halloweenTime(today), Landscape.noelTime(today));
         prefs.setLight(theme == Theme.MINIMAL && !scene.isDark());
         prefs.show(animate);
     }
@@ -1191,11 +1193,6 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         store.halloween = on;
         store.saveHalloween();
         prefs.setHalloween(on);
-        if (on && store.noel) { // un seul décor à la fois
-            store.noel = false;
-            store.saveNoel();
-            prefs.setNoel(false);
-        }
         if (theme == Theme.THINKING) scene.showLandscape(true); // le décor change en fondu
     }
 
@@ -1204,11 +1201,6 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         store.noel = on;
         store.saveNoel();
         prefs.setNoel(on);
-        if (on && store.halloween) { // un seul décor à la fois
-            store.halloween = false;
-            store.saveHalloween();
-            prefs.setHalloween(false);
-        }
         if (theme == Theme.THINKING) scene.showLandscape(true);
     }
 
