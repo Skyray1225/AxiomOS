@@ -557,6 +557,7 @@ class SceneView extends FrameLayout {
         // décors de fête automatiques pendant leur période, sauf si l'utilisateur les a coupés
         if (Landscape.halloweenTime(c) && store.halloween) return "halloween";
         if (Landscape.noelTime(c) && store.noel) return "noel";
+        if (Landscape.paquesTime(c) && store.paques) return "paques";
         return Landscape.seasonByDate(c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
     }
 

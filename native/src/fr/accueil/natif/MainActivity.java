@@ -237,7 +237,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         xlp.topMargin = Math.round(.48f * H - 2.2f * vw);
         root.addView(toast, xlp);
 
-        prefs = new PrefsView(this, this, vw, store.animations, store.lifeFx, store.halloween, store.noel);
+        prefs = new PrefsView(this, this, vw, store.animations, store.lifeFx, store.halloween, store.noel, store.paques);
         prefs.setVisibility(View.GONE);
         prefs.setElevation(10 * vw); // au-dessus du dock, qui a sa propre élévation
         root.addView(prefs, match());
@@ -1059,7 +1059,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         ui.removeCallbacks(goIdle);
         java.util.Calendar today = java.util.Calendar.getInstance();
         prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), scene.landscape(), SceneView.clockText(),
-                Landscape.halloweenTime(today), Landscape.noelTime(today));
+                Landscape.halloweenTime(today), Landscape.noelTime(today), Landscape.paquesTime(today));
         prefs.setLight(theme == Theme.MINIMAL && !scene.isDark());
         prefs.show(animate);
     }
@@ -1238,6 +1238,14 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         store.saveHalloween();
         prefs.setHalloween(on);
         if (theme == Theme.THINKING) scene.showLandscape(true); // le décor change en fondu
+    }
+
+    @Override
+    public void setPaques(boolean on) {
+        store.paques = on;
+        store.savePaques();
+        prefs.setPaques(on);
+        if (theme == Theme.THINKING) scene.showLandscape(true);
     }
 
     @Override

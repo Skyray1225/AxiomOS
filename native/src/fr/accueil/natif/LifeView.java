@@ -170,7 +170,7 @@ class LifeView extends View {
 
     private boolean ghostsWanted() { return "halloween".equals(season) && !wet(); }
 
-    private boolean butterfliesWanted() { return "printemps".equals(season) && moment != 3 && !wet(); }
+    private boolean butterfliesWanted() { return ("printemps".equals(season) || "paques".equals(season)) && moment != 3 && !wet(); }
 
     private boolean fliesWanted() {
         return "ete".equals(season) && moment >= 2 && !wet() && !WeatherView.FOG.equals(weather) && !groves.isEmpty();

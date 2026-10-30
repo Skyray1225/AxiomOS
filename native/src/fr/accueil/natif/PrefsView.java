@@ -40,6 +40,7 @@ class PrefsView extends FrameLayout {
         void setLifeFx(boolean on);
         void setHalloween(boolean on);
         void setNoel(boolean on);
+        void setPaques(boolean on);
         void closePrefs();
         String minMode();
         void cycleMinMode(int dir);
@@ -62,18 +63,18 @@ class PrefsView extends FrameLayout {
     private final LinearLayout[] cards = new LinearLayout[6];
     private final TextView[] checks = new TextView[6];
     private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
-    private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow;
+    private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow, paqRow;
     private final TextView darkValue, blueValue, levelValue;
     private final LinearLayout blueRow, levelRow, lightRow;
     private final SliderView lightSlider;
     private final TextView lightValue;
-    private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch;
+    private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch, paqSwitch;
     private int row = 0, card = 1;
     private final android.widget.ScrollView scroll;
     private String theme = "photo";
     private boolean light;
 
-    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn, boolean halOn, boolean noelOn) {
+    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn, boolean halOn, boolean noelOn, boolean paqOn) {
         super(ctx);
         this.host = host;
         this.vw = vw;
@@ -201,6 +202,11 @@ class PrefsView extends FrameLayout {
         nlp.topMargin = px(.5f);
         box.addView(noelRow, nlp);
 
+        paqRow = row("Décor de Pâques", "Les 15 jours avant Pâques : œufs, paniers, lapins");
+        paqSwitch = new SwitchView(ctx, vw, paqOn);
+        paqRow.addView(paqSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
+        box.addView(paqRow, dlp2());
+
         TextView hint = text("← → choisir · OK appliquer · ↑ ↓ naviguer · Retour fermer", .95f, 400, .55f);
         hint.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -227,7 +233,7 @@ class PrefsView extends FrameLayout {
     private void keepVisible(String id, boolean animate) {
         final View v = "dark".equals(id) ? darkRow : "light".equals(id) ? lightRow : "blue".equals(id) ? blueRow
                 : "level".equals(id) ? levelRow : "anim".equals(id) ? animRow : "life".equals(id) ? lifeRow
-                : "halloween".equals(id) ? halRow : "noel".equals(id) ? noelRow : null;
+                : "halloween".equals(id) ? halRow : "noel".equals(id) ? noelRow : "paques".equals(id) ? paqRow : null;
         scroll.post(() -> {
             int h = scroll.getHeight(), y = scroll.getScrollY(), m = px(1.5f), target = y;
             if (v == null) target = 0; // rangée des thèmes : en haut
@@ -270,22 +276,24 @@ class PrefsView extends FrameLayout {
             r.add("life");
             if (halShown) r.add("halloween");
             if (noelShown) r.add("noel");
+            if (paqShown) r.add("paques");
         }
         return r.toArray(new String[0]);
     }
 
     /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
-    private boolean halShown, noelShown;
+    private boolean halShown, noelShown, paqShown;
 
     /** Rangées des décors de fête : en Thinking, et seulement pendant leur période. */
-    void setFestive(boolean halloween, boolean noel) {
+    void setFestive(boolean halloween, boolean noel, boolean paques) {
         halShown = halloween && "dessin".equals(theme);
         noelShown = noel && "dessin".equals(theme);
+        paqShown = paques && "dessin".equals(theme);
     }
 
-    void open(String currentTheme, Bitmap photoMini, Bitmap landscape, String clock, boolean halloweenTime, boolean noelTime) {
+    void open(String currentTheme, Bitmap photoMini, Bitmap landscape, String clock, boolean halloweenTime, boolean noelTime, boolean paquesTime) {
         theme = currentTheme;
-        setFestive(halloweenTime, noelTime);
+        setFestive(halloweenTime, noelTime, paquesTime);
         row = 0;
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : "dessin".equals(t.theme) ? landscape : null);
@@ -293,6 +301,7 @@ class PrefsView extends FrameLayout {
         lifeRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
         halRow.setVisibility(halShown ? VISIBLE : GONE);
         noelRow.setVisibility(noelShown ? VISIBLE : GONE);
+        paqRow.setVisibility(paqShown ? VISIBLE : GONE);
         render(false);
     }
 
@@ -343,6 +352,10 @@ class PrefsView extends FrameLayout {
         noelSwitch.set(on);
     }
 
+    void setPaques(boolean on) {
+        paqSwitch.set(on);
+    }
+
     /** Version claire (Minimal clair) ou sombre (tous les autres cas), comme dans la version web. */
     void setLight(boolean l) {
         light = l;
@@ -365,6 +378,7 @@ class PrefsView extends FrameLayout {
         lifeSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         halSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         noelSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
+        paqSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         for (ThumbView t : thumbs) t.setRingColor(l ? 0xE61E2A24 : 0xFFFFFFFF);
         render(false);
     }
@@ -391,6 +405,7 @@ class PrefsView extends FrameLayout {
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
                 else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
+                else if ("paques".equals(rows[row])) host.setPaques(!paqSwitch.on);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -403,6 +418,7 @@ class PrefsView extends FrameLayout {
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
                 else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
+                else if ("paques".equals(rows[row])) host.setPaques(!paqSwitch.on);
                 else host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_BACK:
@@ -442,6 +458,7 @@ class PrefsView extends FrameLayout {
         lifeRow.setBackground(rowBg("life".equals(rows[row])));
         halRow.setBackground(rowBg("halloween".equals(rows[row])));
         noelRow.setBackground(rowBg("noel".equals(rows[row])));
+        paqRow.setBackground(rowBg("paques".equals(rows[row])));
         keepVisible(rows[row], animate);
     }
 

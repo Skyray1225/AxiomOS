@@ -32,9 +32,9 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 31; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 32; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
-    static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel"};
+    static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel", "paques"};
 
     /* ===== Palettes du moment ===== */
 
@@ -96,6 +96,31 @@ final class Landscape {
     static boolean noelTime(java.util.Calendar c) {
         int md = (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH);
         return md >= 1201 && md <= 1225;
+    }
+
+    /** Période de Pâques : du 15e jour avant le dimanche de Pâques jusqu'à ce dimanche inclus. */
+    static boolean paquesTime(java.util.Calendar c) {
+        int[] md = easter(c.get(java.util.Calendar.YEAR));
+        java.util.Calendar e = java.util.Calendar.getInstance();
+        e.clear();
+        e.set(c.get(java.util.Calendar.YEAR), md[0] - 1, md[1]);
+        java.util.Calendar start = (java.util.Calendar) e.clone();
+        start.add(java.util.Calendar.DAY_OF_MONTH, -15);
+        java.util.Calendar day = java.util.Calendar.getInstance();
+        day.clear();
+        day.set(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH));
+        return !day.before(start) && !day.after(e);
+    }
+
+    /**
+     * Dimanche de Pâques (calendrier grégorien, méthode de Meeus) : {mois 1-12, jour}.
+     * Vérifié sur le tableau des dates de 2027 à 2050 (28 mars 2027, 16 avril 2028, … 10 avril 2050).
+     */
+    static int[] easter(int y) {
+        int a = y % 19, b = y / 100, c = y % 100, d = b / 4, e = b % 4, f = (b + 8) / 25, g = (b - f + 1) / 3;
+        int h = (19 * a + b - d - g + 15) % 30, i = c / 4, k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+        int m = (a + 11 * h + 22 * l) / 451, n = h + l - 7 * m + 114;
+        return new int[]{n / 31, n % 31 + 1};
     }
 
     /** Illustration de la saison (Halloween sur l'automne, Noël sur l'hiver). */
@@ -164,7 +189,8 @@ final class Landscape {
         }
     }
 
-    // x, pied, centre de la couronne, plan, couleur d'automne (positions relevées sur les illustrations)
+    // x, pied, centre de la couronne, plan, couleur d'automne (positions relevées sur les illustrations,
+    // qui partagent toutes la même composition)
     private static final double[][] TREES = {
             {85, 880, 700, 6, 0xE2702E}, {175, 880, 700, 6, 0xA9652E}, {230, 900, 770, 6, 0xF0A830},
             {440, 700, 615, 4, 0xE8742E}, {490, 700, 570, 4, 0xB06A2C}, {530, 700, 630, 4, 0xEBA634},
