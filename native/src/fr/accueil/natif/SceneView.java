@@ -752,132 +752,36 @@ class SceneView extends FrameLayout {
         }
     }
 
-    /**
-     * Fond Kids : papier peint ludique, dessiné une fois (rien ne bouge, rien ne coûte).
-     */
+    /** Fond Kids : ciel dégradé, soleil en haut à droite, nuage flou en bas à gauche. */
     private static class KidsBackground extends View {
-        private Bitmap scene;
+        private final Paint sky = new Paint(), sun = new Paint(Paint.ANTI_ALIAS_FLAG), cloud = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         KidsBackground(Context ctx) {
             super(ctx);
+            cloud.setColor(0x8CFFFFFF);
+            setLayerType(LAYER_TYPE_SOFTWARE, null); // flou du nuage (dessiné une fois)
         }
 
         @Override
         protected void onSizeChanged(int w, int h, int ow, int oh) {
-            if (w == 0 || h == 0) return;
-            if (scene != null) scene.recycle();
-            scene = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-            Canvas c = new Canvas(scene);
-            c.scale(w / 1920f, h / 1080f);
-            paint(c);
+            float vw = w / 100f;
+            sky.setShader(new android.graphics.LinearGradient(0, 0, 0, h, new int[]{0xFFA9DCFF, 0xFFDFF3FF, 0xFFFFF4D6},
+                    new float[]{0, .55f, 1}, Shader.TileMode.CLAMP));
+            float r = 13 * vw, cx = w + 6 * vw - r, cy = -8 * vw + r;
+            sun.setShader(new RadialGradient(cx, cy, r, new int[]{0xFFFFF3A8, 0xFFFFD75A, 0x00FFD75A},
+                    new float[]{0, .6f / .7f, 1}, Shader.TileMode.CLAMP));
+            cloud.setMaskFilter(new android.graphics.BlurMaskFilter(vw, android.graphics.BlurMaskFilter.Blur.NORMAL));
         }
 
         @Override
         protected void onDraw(Canvas c) {
-            if (scene != null) c.drawBitmap(scene, 0, 0, null);
+            int w = getWidth(), h = getHeight();
+            float vw = w / 100f;
+            c.drawRect(0, 0, w, h, sky);
+            float r = 13 * vw;
+            c.drawCircle(w + 6 * vw - r, -8 * vw + r, r, sun);
+            c.drawOval(-8 * vw, h + 6 * vw - 16 * vw, 32 * vw, h + 6 * vw, cloud);
         }
-
-        /**
-         * Papier peint ludique (pas de paysage) : dégradé pastel en diagonale, grandes taches douces,
-         * petites formes éparpillées et légèrement ombrées (étoiles, cœurs, ronds, anneaux, zigzags,
-         * croix, triangles), plus rares et plus pâles au centre où se trouvent les applis.
-         */
-        private static void paint(Canvas c) {
-            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-            p.setShader(new android.graphics.LinearGradient(0, 0, 1920, 1080, new int[]{0xFFFFE3EC, 0xFFFFF4D6, 0xFFDDF6EE, 0xFFDCEBFF},
-                    new float[]{0, .35f, .7f, 1}, Shader.TileMode.CLAMP));
-            c.drawRect(0, 0, 1920, 1080, p);
-            p.setShader(null);
-            java.util.Random r = new java.util.Random(2024);
-            // grandes taches floues
-            int[] blobs = {0x66FFB3C7, 0x66FFE08A, 0x669BE8D0, 0x66A9C8FF, 0x66D7B8FF};
-            p.setMaskFilter(new android.graphics.BlurMaskFilter(60, android.graphics.BlurMaskFilter.Blur.NORMAL));
-            for (int k = 0; k < 7; k++) {
-                p.setColor(blobs[k % blobs.length]);
-                c.drawCircle(r.nextFloat() * 1920, r.nextFloat() * 1080, 160 + r.nextFloat() * 160, p);
-            }
-            p.setMaskFilter(null);
-            // petites formes
-            int[] cols = {0xFFFF6B8B, 0xFFFFB13B, 0xFF4CC9A6, 0xFF4D9DFF, 0xFFA77BFF, 0xFFFF8A5B, 0xFF36C5F0};
-            Paint sh = new Paint(Paint.ANTI_ALIAS_FLAG);
-            sh.setColor(0x26304060);
-            for (int k = 0; k < 120; k++) {
-                float x = r.nextFloat() * 1920, y = r.nextFloat() * 1080;
-                // zone centrale (les applis) : formes plus rares et plus pâles
-                float dx = Math.abs(x - 960) / 960f, dy = Math.abs(y - 620) / 460f;
-                boolean center = dx < .62f && dy < .78f;
-                if (center && r.nextFloat() < .6f) continue;
-                int col = cols[r.nextInt(cols.length)];
-                if (center) col = (col & 0x00FFFFFF) | 0x73000000;
-                float size = 14 + r.nextFloat() * 22, rot = r.nextFloat() * 360;
-                int kind = r.nextInt(7);
-                c.save();
-                c.translate(x, y);
-                c.rotate(rot);
-                c.save();
-                c.translate(3, 4); // ombre portée
-                shape(c, kind, size, sh, true);
-                c.restore();
-                p.setColor(col);
-                shape(c, kind, size, p, false);
-                c.restore();
-            }
-        }
-
-        /** Forme décorative centrée sur l'origine. */
-        private static void shape(Canvas c, int kind, float s, Paint p, boolean shadow) {
-            android.graphics.Path path = new android.graphics.Path();
-            Paint.Style style = p.getStyle();
-            float sw = p.getStrokeWidth();
-            switch (kind) {
-                case 0: // étoile
-                    for (int k = 0; k < 10; k++) {
-                        double a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 == 0 ? s : s * .45;
-                        if (k == 0) path.moveTo((float) (Math.cos(a) * rr), (float) (Math.sin(a) * rr));
-                        else path.lineTo((float) (Math.cos(a) * rr), (float) (Math.sin(a) * rr));
-                    }
-                    path.close();
-                    c.drawPath(path, p);
-                    break;
-                case 1: // cœur
-                    path.moveTo(0, s * .8f);
-                    path.cubicTo(-s * 1.2f, 0, -s * .6f, -s, 0, -s * .35f);
-                    path.cubicTo(s * .6f, -s, s * 1.2f, 0, 0, s * .8f);
-                    c.drawPath(path, p);
-                    break;
-                case 2: // rond
-                    c.drawCircle(0, 0, s * .55f, p);
-                    break;
-                case 3: // anneau
-                    p.setStyle(Paint.Style.STROKE);
-                    p.setStrokeWidth(s * .28f);
-                    c.drawCircle(0, 0, s * .6f, p);
-                    break;
-                case 4: // zigzag
-                    p.setStyle(Paint.Style.STROKE);
-                    p.setStrokeWidth(s * .22f);
-                    p.setStrokeCap(Paint.Cap.ROUND);
-                    p.setStrokeJoin(Paint.Join.ROUND);
-                    path.moveTo(-s * 1.2f, 0);
-                    for (int k = 1; k <= 4; k++) path.lineTo(-s * 1.2f + k * s * .6f, k % 2 == 1 ? -s * .4f : s * .1f);
-                    c.drawPath(path, p);
-                    break;
-                case 5: // croix
-                    c.drawRoundRect(-s * .7f, -s * .18f, s * .7f, s * .18f, s * .18f, s * .18f, p);
-                    c.drawRoundRect(-s * .18f, -s * .7f, s * .18f, s * .7f, s * .18f, s * .18f, p);
-                    break;
-                default: // triangle arrondi
-                    path.moveTo(0, -s * .7f);
-                    path.lineTo(s * .65f, s * .5f);
-                    path.lineTo(-s * .65f, s * .5f);
-                    path.close();
-                    p.setStrokeJoin(Paint.Join.ROUND);
-                    c.drawPath(path, p);
-            }
-            p.setStyle(style);
-            p.setStrokeWidth(sw);
-        }
-
     }
 
     /* ===== Outils d'affichage, partagés avec l'accueil ===== */

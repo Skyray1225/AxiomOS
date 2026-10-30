@@ -120,7 +120,6 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     private SparkleView sparkle;     // Kids : étoiles autour de l'appli choisie
     private FrameLayout rest;        // Kids : écran de pause en dehors des horaires
     private TextView restWhen;
-    private static final int[] KID_FRAMES = {0xFFFF6B6B, 0xFF4DABF7, 0xFF51CF66, 0xFFFCC419, 0xFFB197FC, 0xFFFF922B};
     private static String pendingToast; // message à afficher après la reconstruction de l'écran
     private boolean hdmiConnected = true; // la télé reçoit-elle l'image ?
     private long lastIntro = 0;
@@ -795,8 +794,6 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
                     float rnd = ((hsh >>> 1) % 1000) / 1000f;
                     tv.setTilt((i % 2 == 1 ? 1 : -1) * (1.2f + rnd * 2.8f), (((hsh >>> 10) % 100) / 100f * 1.2f - .6f) * vw);
                     tv.setKidState(kidsPick ? (store.kidsApps.contains(a.pkg) ? 1 : 2) : 0);
-                    tv.setFrameColor(KID_FRAMES[Math.floorMod(hsh, KID_FRAMES.length)]);
-                    tv.setDecoration(Math.floorMod(hsh >>> 4, 5), hsh); // style de cadre tiré au hasard, propre à l'appli
                 }
                 v = tv;
                 lp = new FrameLayout.LayoutParams(itemW, itemH);
@@ -1187,7 +1184,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         checkRest();
     }
 
-    /** Kids : gerbe d'étoiles autour de la tuile choisie, dans la couleur de son cadre. */
+    /** Kids : gerbe d'étoiles autour de la tuile choisie. */
     private void sparkleOn(int i) {
         if (i >= tiles.size() || !(tiles.get(i) instanceof TileView)) return;
         final TileView t = (TileView) tiles.get(i);
@@ -1197,7 +1194,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
             sparkle.getLocationOnScreen(b);
             float w = t.getWidth() * 1.1f, h = t.getHeight() * 1.1f;
             float cx = a[0] - b[0] + t.getWidth() / 2f, cy = a[1] - b[1] + t.getHeight() / 2f;
-            sparkle.burst(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, t.frameColor());
+            sparkle.burst(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, 0xFFFF9F1C); // orange du cadre sélectionné
         });
     }
 
