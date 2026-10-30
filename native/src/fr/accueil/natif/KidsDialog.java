@@ -90,7 +90,7 @@ class KidsDialog extends FrameLayout {
         card.removeAllViews();
         boolean check = "check".equals(mode);
         header(check ? "Espace parent" : "set1".equals(mode) ? "Choisis un code parent" : "Confirme le code",
-                check ? "Tape le code avec les flèches de la télécommande"
+                check ? "Utilisez les flèches directionnelles pour saisir votre code parental"
                         : "set1".equals(mode) ? "Une suite de 4 flèches. Elle protège la sortie du mode Kids et les réglages."
                         : "Tape à nouveau les 4 mêmes flèches");
         // quatre cases : une flèche tapée s'affiche en point plein (le code reste secret)
@@ -158,12 +158,11 @@ class KidsDialog extends FrameLayout {
         t.setPadding(px(1.4f), px(1.3f), px(1.4f), px(1.3f));
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(1.5f * vw);
+        // sélection : fond blanc et contour de sa couleur, sans agrandir ni soulever la case
+        // (sa rangée la couperait) ; non choisie : même épaisseur de contour, transparent
         g.setColor(selected ? 0xFFFFFFFF : 0xFFF4F1EA);
-        g.setStroke(selected ? px(.3f) : 1, selected ? TILE_COLORS[i] : 0x1A24456E);
+        g.setStroke(px(.3f), selected ? TILE_COLORS[i] : 0x00FFFFFF);
         t.setBackground(g);
-        t.setElevation(selected ? 1.2f * vw : 0);
-        t.setScaleX(selected ? 1.03f : 1);
-        t.setScaleY(selected ? 1.03f : 1);
         t.addView(new Icon(getContext(), i, TILE_COLORS[i]), new LinearLayout.LayoutParams(px(3.6f), px(3.6f)));
         t.addView(label(title, 1.3f, 600, INK), lp(0, px(.9f), 0, 0));
         TextView st = label(state, .95f, 500, SOFT);
