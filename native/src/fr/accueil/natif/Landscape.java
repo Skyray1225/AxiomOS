@@ -32,7 +32,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 29; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 30; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
     static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel"};
 
@@ -291,6 +291,15 @@ final class Landscape {
         // paysage sans son ciel (les arbres, l'étoile du sapin, les chauves-souris restent), teinté
         for (int i = 0; i < px.length; i++) px[i] = (px[i] & 0x00FFFFFF) | (255 - sky[i]) << 24;
         Bitmap cut = Bitmap.createBitmap(px, W, H, Bitmap.Config.ARGB_8888);
+        // ombre douce du papier découpé sur le nouveau ciel (celle de l'illustration a été retirée)
+        Paint blur = new Paint();
+        blur.setMaskFilter(new android.graphics.BlurMaskFilter(7, android.graphics.BlurMaskFilter.Blur.NORMAL));
+        int[] off = new int[2];
+        Bitmap shadow = cut.extractAlpha(blur, off);
+        Paint sh = new Paint(Paint.FILTER_BITMAP_FLAG);
+        sh.setColor(alpha(mix(p0.sky[0], BLACK, .55), p0.night ? .35 : .22));
+        cv.drawBitmap(shadow, off[0], off[1] - 3, sh);
+        shadow.recycle();
         img.setColorFilter(new ColorMatrixColorFilter(grade(idx)));
         cv.drawBitmap(cut, 0, 0, img);
         cut.recycle();
@@ -340,9 +349,48 @@ final class Landscape {
                 q[tail++] = j;
             }
         }
+        // ligne des montagnes, colonne par colonne : sous le halo d'ombre peint dans l'illustration,
+        // le vrai bord est le changement de couleur le plus net ; ligne lissée (pas de dents)
+        float[] ridge = new float[W];
+        boolean[] onRidge = new boolean[W];
+        int[] top = new int[W];
+        for (int x = 0; x < W; x++) {
+            int y = 0;
+            while (y < H && m[y * W + x] != 0) y++;
+            top[x] = y;
+            ridge[x] = y;
+            if (Math.abs(y - prior[x]) > 25 || y < 2 || y > H - 20) continue; // arbre, étoile, chauve-souris : découpe telle quelle
+            double max = 0;
+            double[] d = new double[16];
+            for (int k = 0; k < 16; k++) {
+                int yy = y + k;
+                d[k] = dist(px[(yy - 1) * W + x], px[(yy + 1) * W + x]);
+                max = Math.max(max, d[k]);
+            }
+            int best = y;
+            for (int k = 0; k < 16; k++) if (d[k] >= max * .7) { best = y + k; break; } // premier bord franc
+            ridge[x] = best;
+            onRidge[x] = true;
+        }
+        float[] med = ridge.clone();
+        for (int x = 3; x < W - 3; x++) {
+            if (!onRidge[x]) continue;
+            float[] w7 = new float[7];
+            for (int k = -3; k <= 3; k++) w7[k + 3] = onRidge[x + k] ? ridge[x + k] : ridge[x];
+            Arrays.sort(w7);
+            med[x] = w7[3];
+        }
+        for (int x = 1; x < W - 1; x++)
+            if (onRidge[x]) ridge[x] = (med[x - 1] + 2 * med[x] + med[x + 1]) / 4f;
         int[] a = new int[W * H];
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++) {
+                if (onRidge[x] && y >= top[x] - 3 && y <= ridge[x] + 3) { // bord lissé, adouci sur un pixel
+                    float f = Math.max(0, Math.min(1, ridge[x] - y + .5f));
+                    a[y * W + x] = Math.round(f * 255);
+                    continue;
+                }
+                if (onRidge[x] && y > ridge[x] + 3) continue; // paysage
                 int sum = 0, n = 0;
                 for (int dy = -1; dy <= 1; dy++)
                     for (int dx = -1; dx <= 1; dx++) {
