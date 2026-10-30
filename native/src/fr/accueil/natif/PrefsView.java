@@ -69,7 +69,12 @@ class PrefsView extends FrameLayout {
     private final SliderView lightSlider;
     private final TextView lightValue;
     private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch, paqSwitch;
-    private int row = 0, card = 1;
+    private int row = 1, card = 1;
+    private int page = 0; // onglet : 0 Thème, 1 Écran, 2 Décor
+    private static final String[] TABS = {"Thème", "Écran", "Décor"};
+    private final TextView[] tabs = new TextView[3];
+    private final LinearLayout[] pages = new LinearLayout[3];
+    private TextView hint;
     private final android.widget.ScrollView scroll;
     private String theme = "photo";
     private boolean light;
@@ -99,9 +104,31 @@ class PrefsView extends FrameLayout {
         box.setPadding(0, px(.6f), 0, px(.5f));
         scroll.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = text("Préférences", 2f, 500, 1f);
-        box.addView(title, lp(0, 0, 0, px(1.6f)));
-        box.addView(section("Thème"), lp(0, 0, 0, px(.9f)));
+        // en-tête : titre à gauche, onglets à droite
+        LinearLayout head = new LinearLayout(ctx);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(text("Préférences", 2f, 500, 1f), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout tabBar = new LinearLayout(ctx);
+        tabBar.setPadding(px(.3f), px(.3f), px(.3f), px(.3f));
+        GradientDrawable tb = new GradientDrawable();
+        tb.setColor(0x14FFFFFF);
+        tb.setCornerRadius(99 * vw);
+        tabBar.setBackground(tb);
+        for (int i = 0; i < 3; i++) {
+            tabs[i] = text(TABS[i], 1.1f, 500, 1f);
+            tabs[i].setGravity(Gravity.CENTER);
+            tabs[i].setPadding(px(1.5f), px(.6f), px(1.5f), px(.6f));
+            tabBar.addView(tabs[i], lp(i > 0 ? px(.2f) : 0, 0, 0, 0));
+        }
+        head.addView(tabBar);
+        box.addView(head, lp(0, 0, 0, px(1.8f)));
+        head.getLayoutParams().width = ViewGroup.LayoutParams.MATCH_PARENT;
+        for (int i = 0; i < 3; i++) {
+            pages[i] = new LinearLayout(ctx);
+            pages[i].setOrientation(LinearLayout.VERTICAL);
+            pages[i].setClipChildren(false);
+            box.addView(pages[i], new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
 
         // grille 3 × 2
         int inner = px(58) - 2 * px(2.6f), gapX = px(1.6f), gapY = px(1.4f);
@@ -141,12 +168,15 @@ class PrefsView extends FrameLayout {
                 if (c > 0) klp.leftMargin = gapX;
                 line.addView(k, klp);
             }
-            LinearLayout.LayoutParams llp = lp(0, r > 0 ? gapY : 0, 0, r == 1 ? px(1.8f) : 0);
+            LinearLayout.LayoutParams llp = lp(0, r > 0 ? gapY : 0, 0, 0);
             llp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            box.addView(line, llp);
+            pages[0].addView(line, llp);
         }
 
-        box.addView(section("Affichage"), lp(0, 0, 0, px(.9f)));
+        // hauteur commune aux trois onglets : la carte ne change pas de taille en passant de l'un à l'autre
+        int pageH = 2 * (ch + px(.8f) + px(1.6f)) + gapY;
+        for (LinearLayout pg : pages) pg.setMinimumHeight(pageH);
+
         darkRow = row("Apparence de Minimal", "Auto suit le jour et la nuit");
         darkValue = text("", 1.25f, 500, 1f);
         LinearLayout val = new LinearLayout(ctx);
@@ -157,57 +187,49 @@ class PrefsView extends FrameLayout {
         val.addView(darkValue, vl);
         val.addView(gt);
         darkRow.addView(val);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dlp.bottomMargin = px(.5f);
-        box.addView(darkRow, dlp);
 
-        lightRow = row("Luminosité", "← → pour baisser ou remonter ; 100 % : image normale de la télé");
+        lightRow = row("Luminosité", "Assombrit tout l'écran, applis comprises");
         lightSlider = new SliderView(ctx, vw);
         lightRow.addView(lightSlider, new LinearLayout.LayoutParams(px(12), px(1.9f)));
         lightValue = text("", 1.25f, 500, 1f);
         lightValue.setMinWidth(px(4.2f));
         lightValue.setGravity(Gravity.END);
         lightRow.addView(lightValue, lp(px(1), 0, 0, 0));
-        box.addView(lightRow, dlp2());
-        blueRow = row("Filtre lumière bleue", "Sur tout l'écran, applis comprises ; Auto : du coucher au lever du soleil");
+        pages[1].addView(lightRow, dlp2());
+        blueRow = row("Filtre lumière bleue", "Teinte chaude sur tout l'écran · Auto : la nuit");
         blueValue = valueBox(blueRow);
-        box.addView(blueRow, dlp2());
-        levelRow = row("Intensité du filtre", "Teinte ambrée plus ou moins marquée");
+        pages[1].addView(blueRow, dlp2());
+        levelRow = row("Intensité du filtre", "Plus ou moins marquée");
         levelValue = valueBox(levelRow);
-        box.addView(levelRow, dlp2());
+        pages[1].addView(levelRow, dlp2());
+        pages[1].addView(darkRow, dlp2());
 
-        animRow = row("Animations du décor", "Lueur sur l'appli sélectionnée");
+        animRow = row("Animations du décor", "Lueur sur l'appli sélectionnée, pluie et neige");
         animSwitch = new SwitchView(ctx, vw, animOn);
         animRow.addView(animSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
-        box.addView(animRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        pages[2].addView(animRow, dlp2());
 
         lifeRow = row("Effets de saison", "Feuilles, papillons, lucioles, étoiles filantes");
         lifeSwitch = new SwitchView(ctx, vw, lifeOn);
         lifeRow.addView(lifeSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        flp.topMargin = px(.5f);
-        box.addView(lifeRow, flp);
+        pages[2].addView(lifeRow, dlp2());
 
         halRow = row("Décor d'Halloween", "Du 15 octobre au 1er novembre : citrouilles, guirlandes, chauves-souris");
         halSwitch = new SwitchView(ctx, vw, halOn);
         halRow.addView(halSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
-        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hlp.topMargin = px(.5f);
-        box.addView(halRow, hlp);
+        pages[2].addView(halRow, dlp2());
 
         noelRow = row("Décor de Noël", "Du 1er au 25 décembre : sapins illuminés, lanternes, traîneau");
         noelSwitch = new SwitchView(ctx, vw, noelOn);
         noelRow.addView(noelSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nlp.topMargin = px(.5f);
-        box.addView(noelRow, nlp);
+        pages[2].addView(noelRow, dlp2());
 
         paqRow = row("Décor de Pâques", "Les 15 jours avant Pâques : œufs, paniers, lapins");
         paqSwitch = new SwitchView(ctx, vw, paqOn);
         paqRow.addView(paqSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
-        box.addView(paqRow, dlp2());
+        pages[2].addView(paqRow, dlp2());
 
-        TextView hint = text("← → choisir · OK appliquer · ↑ ↓ naviguer · Retour fermer", .95f, 400, .55f);
+        hint = text("", .95f, 400, .55f);
         hint.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hl.topMargin = px(1.4f);
@@ -263,20 +285,24 @@ class PrefsView extends FrameLayout {
         return p;
     }
 
-    /** Rangées du bas : « apparence » (en Minimal seulement), animations, effets de saison (en Thinking seulement). */
+    /** Rangées de l'onglet affiché, précédées de la barre d'onglets. */
     private String[] rows() {
         java.util.List<String> r = new java.util.ArrayList<>();
-        r.add("themes");
-        if ("minimal".equals(theme)) r.add("dark");
-        r.add("light");
-        r.add("blue");
-        if (!BlueFilter.OFF.equals(host.blueMode())) r.add("level");
-        r.add("anim");
-        if ("dessin".equals(theme)) {
-            r.add("life");
-            if (halShown) r.add("halloween");
-            if (noelShown) r.add("noel");
-            if (paqShown) r.add("paques");
+        r.add("tabs");
+        if (page == 0) r.add("themes");
+        else if (page == 1) {
+            r.add("light");
+            r.add("blue");
+            if (!BlueFilter.OFF.equals(host.blueMode())) r.add("level");
+            if ("minimal".equals(theme)) r.add("dark");
+        } else {
+            r.add("anim");
+            if ("dessin".equals(theme)) {
+                r.add("life");
+                if (halShown) r.add("halloween");
+                if (noelShown) r.add("noel");
+                if (paqShown) r.add("paques");
+            }
         }
         return r.toArray(new String[0]);
     }
@@ -294,7 +320,8 @@ class PrefsView extends FrameLayout {
     void open(String currentTheme, Bitmap photoMini, Bitmap landscape, String clock, boolean halloweenTime, boolean noelTime, boolean paquesTime) {
         theme = currentTheme;
         setFestive(halloweenTime, noelTime, paquesTime);
-        row = 0;
+        page = 0;
+        row = 1; // sur le thème actuel
         for (int i = 0; i < 6; i++) if (THEMES[i].equals(theme)) card = i;
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : "dessin".equals(t.theme) ? landscape : null);
         darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
@@ -385,41 +412,45 @@ class PrefsView extends FrameLayout {
 
     boolean onKey(int keyCode) {
         String[] rows = rows();
+        String id = rows[Math.min(row, rows.length - 1)];
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
-                if (row > 0) row--;
-                else if (card >= 3) card -= 3;
+                if ("themes".equals(id) && card >= 3) card -= 3;
+                else if (row > 0) row--;
                 break;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (row == 0 && card < 3) card += 3;
+                if ("themes".equals(id) && card < 3) card += 3;
                 else row = Math.min(rows.length - 1, row + 1);
                 break;
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 int d = keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1;
-                if (row == 0) card = Math.max(0, Math.min(5, card + d));
-                else if ("dark".equals(rows[row])) host.cycleMinMode(d);
-                else if ("blue".equals(rows[row])) host.cycleBlueMode(d);
-                else if ("light".equals(rows[row])) host.stepBrightness(d);
-                else if ("level".equals(rows[row])) host.cycleBlueLevel(d);
-                else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
-                else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
-                else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
-                else if ("paques".equals(rows[row])) host.setPaques(!paqSwitch.on);
-                else host.setAnimations(!animSwitch.on);
+                if ("tabs".equals(id)) page = Math.max(0, Math.min(2, page + d));
+                else if ("themes".equals(id)) card = Math.max(0, Math.min(5, card + d));
+                else if ("dark".equals(id)) host.cycleMinMode(d);
+                else if ("blue".equals(id)) host.cycleBlueMode(d);
+                else if ("light".equals(id)) host.stepBrightness(d);
+                else if ("level".equals(id)) host.cycleBlueLevel(d);
+                else if ("life".equals(id)) host.setLifeFx(!lifeSwitch.on);
+                else if ("halloween".equals(id)) host.setHalloween(!halSwitch.on);
+                else if ("noel".equals(id)) host.setNoel(!noelSwitch.on);
+                else if ("paques".equals(id)) host.setPaques(!paqSwitch.on);
+                else if ("anim".equals(id)) host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                if (row == 0) host.applyTheme(THEMES[card]);
-                else if ("dark".equals(rows[row])) host.cycleMinMode(1);
-                else if ("blue".equals(rows[row])) host.cycleBlueMode(1);
-                else if ("level".equals(rows[row])) host.cycleBlueLevel(1);
-                else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
-                else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
-                else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
-                else if ("paques".equals(rows[row])) host.setPaques(!paqSwitch.on);
-                else host.setAnimations(!animSwitch.on);
+                if ("tabs".equals(id)) row = 1;
+                else if ("themes".equals(id)) host.applyTheme(THEMES[card]);
+                else if ("dark".equals(id)) host.cycleMinMode(1);
+                else if ("blue".equals(id)) host.cycleBlueMode(1);
+                else if ("light".equals(id)) host.stepBrightness(1);
+                else if ("level".equals(id)) host.cycleBlueLevel(1);
+                else if ("life".equals(id)) host.setLifeFx(!lifeSwitch.on);
+                else if ("halloween".equals(id)) host.setHalloween(!halSwitch.on);
+                else if ("noel".equals(id)) host.setNoel(!noelSwitch.on);
+                else if ("paques".equals(id)) host.setPaques(!paqSwitch.on);
+                else if ("anim".equals(id)) host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_ESCAPE:
@@ -434,8 +465,25 @@ class PrefsView extends FrameLayout {
 
     private void render(boolean animate) {
         String[] rows = rows();
+        row = Math.max(0, Math.min(row, rows.length - 1));
+        boolean onTabs = row == 0;
+        // onglets : celui affiché est marqué ; quand on est sur la barre, il est en blanc plein
+        for (int i = 0; i < 3; i++) {
+            pages[i].setVisibility(i == page ? VISIBLE : GONE);
+            GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(99 * vw);
+            boolean cur = i == page;
+            int on = light ? 0xFF1E2A24 : 0xFFFFFFFF, off = light ? 0xFF1E2A24 : 0xFFFFFFFF;
+            g.setColor(cur ? (onTabs ? on : (light ? 0x1A1E2A24 : 0x26FFFFFF)) : 0);
+            tabs[i].setBackground(g);
+            tabs[i].setTextColor(cur && onTabs ? (light ? 0xFFFFFFFF : 0xFF1A1C20) : off);
+            tabs[i].setAlpha(cur ? 1f : .6f);
+        }
+        hint.setText(onTabs ? "← → changer d'onglet · ↓ ou OK entrer · Retour fermer"
+                : page == 0 ? "← → ↑ ↓ choisir · OK appliquer · Retour fermer"
+                : "↑ ↓ choisir · ← → régler · ↑ en haut : onglets · Retour fermer");
         for (int i = 0; i < 6; i++) {
-            boolean sel = row == 0 && i == card;
+            boolean sel = "themes".equals(rows[row]) && i == card;
             thumbs[i].setSel(sel);
             float dy = sel ? -.5f * vw : 0;
             if (animate) cards[i].animate().translationY(dy).setDuration(350).setInterpolator(MainActivity.EASE);
