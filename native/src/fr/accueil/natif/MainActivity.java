@@ -796,6 +796,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
                     tv.setTilt((i % 2 == 1 ? 1 : -1) * (1.2f + rnd * 2.8f), (((hsh >>> 10) % 100) / 100f * 1.2f - .6f) * vw);
                     tv.setKidState(kidsPick ? (store.kidsApps.contains(a.pkg) ? 1 : 2) : 0);
                     tv.setFrameColor(KID_FRAMES[Math.floorMod(hsh, KID_FRAMES.length)]);
+                    tv.setDecoration(Math.floorMod(hsh >>> 4, 5), hsh); // style de cadre tiré au hasard, propre à l'appli
                 }
                 v = tv;
                 lp = new FrameLayout.LayoutParams(itemW, itemH);
