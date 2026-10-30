@@ -108,10 +108,6 @@ class KidsDialog extends FrameLayout {
             slots.addView(v, l);
         }
         card.addView(slots, lp(0, px(2), 0, px(1.4f)));
-        // les touches utilisables, en rappel
-        TextView keys = label("↑   ↓   ←   →", 1.6f, 500, 0x6624456E);
-        keys.setGravity(Gravity.CENTER);
-        card.addView(keys, lp(0, 0, 0, px(.8f)));
         TextView msg = label(error != null ? error : " ", 1.05f, 600, ACCENT);
         msg.setGravity(Gravity.CENTER);
         card.addView(msg, lp(0, 0, 0, px(.6f)));
