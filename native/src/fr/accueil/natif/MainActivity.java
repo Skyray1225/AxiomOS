@@ -1061,7 +1061,26 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         prefs.open(theme.id, scene.decodeAsset("photos/mini/" + (scene.photoIndex() + 1) + ".jpg"), scene.landscape(), SceneView.clockText(),
                 Landscape.halloweenTime(today), Landscape.noelTime(today), Landscape.paquesTime(today));
         prefs.setLight(theme == Theme.MINIMAL && !scene.isDark());
+        prefs.setBackdrop(screenBlur());
         prefs.show(animate);
+    }
+
+    /** L'écran actuel (sans le panneau), réduit puis flouté : fond du panneau en verre dépoli. */
+    private Bitmap screenBlur() {
+        int w = W / 4, h = H / 4;
+        Bitmap shot = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(shot);
+        c.scale(.25f, .25f);
+        int vis = prefs.getVisibility();
+        prefs.setVisibility(View.INVISIBLE);
+        try {
+            root.draw(c);
+        } catch (Exception ignored) {
+        }
+        prefs.setVisibility(vis);
+        Bitmap b = DockView.blurred(shot);
+        shot.recycle();
+        return b;
     }
 
     @Override

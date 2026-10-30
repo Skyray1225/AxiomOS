@@ -384,13 +384,25 @@ class PrefsView extends FrameLayout {
     }
 
     /** Version claire (Minimal clair) ou sombre (tous les autres cas), comme dans la version web. */
+    private Bitmap backdrop; // l'écran derrière le panneau, flouté (verre dépoli, comme le dock)
+
+    /** Image floutée de l'écran au moment de l'ouverture : le panneau devient une plaque de verre. */
+    void setBackdrop(Bitmap blurred) {
+        backdrop = blurred;
+        sheet.setBackground(new Glass());
+        setBackgroundColor(light ? 0x33F3F1EC : 0x40080C12); // voile plus léger : le décor reste visible
+    }
+
     void setLight(boolean l) {
         light = l;
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(l ? 0xF7FAFAF8 : 0xF51A1C20);
-        bg.setCornerRadius(1.9f * vw);
-        bg.setStroke(1, l ? 0xB3FFFFFF : 0x29FFFFFF);
-        sheet.setBackground(bg);
+        if (backdrop != null) sheet.setBackground(new Glass());
+        else {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(l ? 0xF7FAFAF8 : 0xF51A1C20);
+            bg.setCornerRadius(1.9f * vw);
+            bg.setStroke(1, l ? 0xB3FFFFFF : 0x29FFFFFF);
+            sheet.setBackground(bg);
+        }
         int fg = l ? 0xFF1E2A24 : 0xFFFFFFFF;
         for (TextView t : texts) t.setTextColor(fg);
         for (TextView c : checks) {
@@ -556,6 +568,65 @@ class PrefsView extends FrameLayout {
     }
 
     /** Interrupteur vert / gris, pastille qui glisse. */
+    /**
+     * Fond « verre liquide » du panneau : l'écran flouté derrière lui, une teinte pour la lisibilité,
+     * un reflet clair qui descend du haut, un liseré lumineux plus marqué en haut à gauche.
+     */
+    private class Glass extends android.graphics.drawable.Drawable {
+        private final Paint img = new Paint(Paint.FILTER_BITMAP_FLAG), p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int[] loc = new int[2];
+
+        @Override
+        public void draw(Canvas c) {
+            android.graphics.Rect b = getBounds();
+            float r = 1.9f * vw;
+            RectF box = new RectF(b);
+            android.graphics.Path clip = new android.graphics.Path();
+            clip.addRoundRect(box, r, r, android.graphics.Path.Direction.CW);
+            c.save();
+            c.clipPath(clip);
+            if (backdrop != null) {
+                sheet.getLocationOnScreen(loc);
+                int sw = getResources().getDisplayMetrics().widthPixels;
+                float k = backdrop.getWidth() / (float) sw;
+                android.graphics.Rect src = new android.graphics.Rect(Math.round(loc[0] * k), Math.round(loc[1] * k),
+                        Math.round((loc[0] + b.width()) * k), Math.round((loc[1] + b.height()) * k));
+                android.graphics.ColorMatrix sat = new android.graphics.ColorMatrix();
+                sat.setSaturation(1.4f);
+                img.setColorFilter(new android.graphics.ColorMatrixColorFilter(sat));
+                c.drawBitmap(backdrop, src, b, img);
+            }
+            p.setShader(null);
+            p.setColor(light ? 0x8CF6F6F2 : 0x8C14181E); // teinte : le texte reste lisible
+            c.drawRect(box, p);
+            p.setShader(new LinearGradient(0, b.top, 0, b.top + b.height() * .45f,
+                    light ? 0x59FFFFFF : 0x2EFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)); // reflet du haut
+            c.drawRect(box, p);
+            c.restore();
+            p.setShader(new LinearGradient(b.left, b.top, b.right, b.bottom,
+                    new int[]{light ? 0xE6FFFFFF : 0x99FFFFFF, light ? 0x66FFFFFF : 0x2EFFFFFF, light ? 0x80FFFFFF : 0x40FFFFFF},
+                    new float[]{0, .5f, 1}, Shader.TileMode.CLAMP)); // liseré
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(Math.max(1.5f, .08f * vw));
+            box.inset(.75f, .75f);
+            c.drawRoundRect(box, r, r, p);
+            p.setStyle(Paint.Style.FILL);
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+        }
+
+        @Override
+        public void setColorFilter(android.graphics.ColorFilter cf) {
+        }
+
+        @Override
+        public int getOpacity() {
+            return android.graphics.PixelFormat.TRANSLUCENT;
+        }
+    }
+
     /** Curseur : piste, partie remplie, pastille. */
     static class SliderView extends View {
         private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG), knob = new Paint(Paint.ANTI_ALIAS_FLAG);
