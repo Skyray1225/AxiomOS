@@ -32,7 +32,7 @@ import java.util.Random;
 final class Landscape {
 
     static final int W = 1920, H = 1080;
-    static final int VERSION = 28; // à augmenter quand le dessin change : les images en cache sont refaites
+    static final int VERSION = 29; // à augmenter quand le dessin change : les images en cache sont refaites
     static final String[] TIMES = {"aube", "jour", "crépuscule", "nuit"};
     static final String[] SEASON_IDS = {"printemps", "ete", "automne", "hiver", "halloween", "noel"};
 
@@ -296,10 +296,12 @@ final class Landscape {
         cut.recycle();
         if (idx != 3) { // reflet chaud de l'aube ou du crépuscule
             Paint warm = new Paint();
-            warm.setShader(new LinearGradient(0, 350, 0, H, alpha(idx == 0 ? c("#ffc9a6") : c("#e09070"), idx == 0 ? .1 : .12),
-                    alpha(idx == 0 ? c("#ffc9a6") : c("#6a4a6a"), .04), Shader.TileMode.CLAMP));
+            // monte progressivement depuis le haut du ciel : pas de ligne visible
+            int wc = idx == 0 ? c("#ffc9a6") : c("#e09070");
+            warm.setShader(new LinearGradient(0, 200, 0, H, new int[]{alpha(wc, 0), alpha(wc, idx == 0 ? .1 : .12), alpha(idx == 0 ? wc : c("#6a4a6a"), .04)},
+                    new float[]{0, .45f, 1}, Shader.TileMode.CLAMP));
             warm.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
-            cv.drawRect(0, 350, W, H, warm);
+            cv.drawRect(0, 0, W, H, warm);
         }
         if (mask != null) {
             maskedLights(orig, mask, idx == 3 ? 1 : .5);
