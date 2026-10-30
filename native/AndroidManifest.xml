@@ -9,6 +9,9 @@
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="30" />
 
     <uses-permission android:name="android.permission.INTERNET" /> <!-- météo (Open-Meteo) -->
+    <!-- filtre anti lumière bleue par-dessus toutes les applis (autorisation donnée une fois par appops) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
@@ -45,6 +48,8 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Filtre anti lumière bleue : voile ambré sur tout l'écran, réglé dans les Préférences -->
+        <service android:name=".BlueFilter" android:exported="false" />
         <!-- Économiseur d'écran : inactif tant qu'on ne le choisit pas (settings secure screensaver_components) -->
         <service
             android:name=".AccueilDream"

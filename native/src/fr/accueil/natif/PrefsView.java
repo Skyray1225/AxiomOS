@@ -43,6 +43,10 @@ class PrefsView extends FrameLayout {
         void closePrefs();
         String minMode();
         void cycleMinMode(int dir);
+        String blueMode();
+        int blueLevel();
+        void cycleBlueMode(int dir);
+        void cycleBlueLevel(int dir);
         Typeface font(int weight);
     }
 
@@ -57,7 +61,8 @@ class PrefsView extends FrameLayout {
     private final TextView[] checks = new TextView[6];
     private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
     private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow;
-    private final TextView darkValue;
+    private final TextView darkValue, blueValue, levelValue;
+    private final LinearLayout blueRow, levelRow;
     private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch;
     private int row = 0, card = 1;
     private String theme = "photo";
@@ -139,6 +144,13 @@ class PrefsView extends FrameLayout {
         dlp.bottomMargin = px(.5f);
         box.addView(darkRow, dlp);
 
+        blueRow = row("Filtre lumière bleue", "Sur tout l'écran, applis comprises ; Auto : du coucher au lever du soleil");
+        blueValue = valueBox(blueRow);
+        box.addView(blueRow, dlp2());
+        levelRow = row("Intensité du filtre", "Teinte ambrée plus ou moins marquée");
+        levelValue = valueBox(levelRow);
+        box.addView(levelRow, dlp2());
+
         animRow = row("Animations du décor", "Lueur sur l'appli sélectionnée");
         animSwitch = new SwitchView(ctx, vw, animOn);
         animRow.addView(animSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
@@ -187,12 +199,38 @@ class PrefsView extends FrameLayout {
         return r;
     }
 
+    /** Valeur à choisir avec ‹ › à droite d'une rangée. */
+    private TextView valueBox(LinearLayout r) {
+        TextView v = text("", 1.25f, 500, 1f);
+        LinearLayout val = new LinearLayout(getContext());
+        val.setGravity(Gravity.CENTER_VERTICAL);
+        val.addView(text("‹", 1.25f, 400, .5f));
+        val.addView(v, lp(px(.9f), 0, px(.9f), 0));
+        val.addView(text("›", 1.25f, 400, .5f));
+        r.addView(val);
+        return v;
+    }
+
+    private LinearLayout.LayoutParams dlp2() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.bottomMargin = px(.5f);
+        return p;
+    }
+
     /** Rangées du bas : « apparence » (en Minimal seulement), animations, effets de saison (en Thinking seulement). */
     private String[] rows() {
-        return "minimal".equals(theme) ? new String[]{"themes", "dark", "anim"}
-                : "dessin".equals(theme) ? (halShown ? new String[]{"themes", "anim", "life", "halloween"}
-                : noelShown ? new String[]{"themes", "anim", "life", "noel"} : new String[]{"themes", "anim", "life"})
-                : new String[]{"themes", "anim"};
+        java.util.List<String> r = new java.util.ArrayList<>();
+        r.add("themes");
+        if ("minimal".equals(theme)) r.add("dark");
+        r.add("blue");
+        if (!BlueFilter.OFF.equals(host.blueMode())) r.add("level");
+        r.add("anim");
+        if ("dessin".equals(theme)) {
+            r.add("life");
+            if (halShown) r.add("halloween");
+            if (noelShown) r.add("noel");
+        }
+        return r.toArray(new String[0]);
     }
 
     /** Ouverture : sélection sur le thème actuel, miniature Modern sur la photo du moment. */
@@ -306,6 +344,8 @@ class PrefsView extends FrameLayout {
                 int d = keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1;
                 if (row == 0) card = Math.max(0, Math.min(5, card + d));
                 else if ("dark".equals(rows[row])) host.cycleMinMode(d);
+                else if ("blue".equals(rows[row])) host.cycleBlueMode(d);
+                else if ("level".equals(rows[row])) host.cycleBlueLevel(d);
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
                 else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
@@ -316,6 +356,8 @@ class PrefsView extends FrameLayout {
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (row == 0) host.applyTheme(THEMES[card]);
                 else if ("dark".equals(rows[row])) host.cycleMinMode(1);
+                else if ("blue".equals(rows[row])) host.cycleBlueMode(1);
+                else if ("level".equals(rows[row])) host.cycleBlueLevel(1);
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
                 else if ("noel".equals(rows[row])) host.setNoel(!noelSwitch.on);
@@ -345,6 +387,12 @@ class PrefsView extends FrameLayout {
         String mode = host.minMode();
         for (String[] m : MIN_MODES) if (m[0].equals(mode)) darkValue.setText(m[1]);
         darkRow.setBackground(rowBg("dark".equals(rows[row])));
+        String bm = host.blueMode();
+        blueValue.setText(BlueFilter.ON.equals(bm) ? "Activé" : BlueFilter.AUTO.equals(bm) ? "Auto" : "Désactivé");
+        levelValue.setText(new String[]{"Légère", "Moyenne", "Forte"}[Math.max(0, Math.min(2, host.blueLevel()))]);
+        levelRow.setVisibility(BlueFilter.OFF.equals(bm) ? GONE : VISIBLE);
+        blueRow.setBackground(rowBg("blue".equals(rows[row])));
+        levelRow.setBackground(rowBg("level".equals(rows[row])));
         animRow.setBackground(rowBg("anim".equals(rows[row])));
         lifeRow.setBackground(rowBg("life".equals(rows[row])));
         halRow.setBackground(rowBg("halloween".equals(rows[row])));

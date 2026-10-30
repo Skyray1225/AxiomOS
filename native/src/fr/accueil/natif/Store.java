@@ -32,6 +32,8 @@ class Store {
     boolean lifeFx;    // Thinking : effets de saison (feuilles, papillons, lucioles, étoiles filantes)
     boolean halloween; // Thinking : décor d'Halloween pendant sa période (activé sauf si l'utilisateur l'a coupé)
     boolean noel;      // Thinking : décor de Noël pendant sa période (idem)
+    String blueMode;   // filtre anti lumière bleue : off, on, auto (la nuit)
+    int blueLevel;     // intensité du filtre : 0 légère, 1 moyenne, 2 forte
     String theme, minMode; // thème ; apparence de Minimal : auto, light, dark
     // Kids : applis autorisées, code parent (4 flèches, ex. "U,U,L,R"), thème à retrouver en quittant Kids
     static final String[] KIDS_DEFAULT = {"com.google.android.youtube.tv", "com.disney.disneyplus", "com.vectorunit.purple.googleplay"};
@@ -51,6 +53,8 @@ class Store {
         lifeFx = !"false".equals(sp.getString("effets", "true"));
         halloween = !"false".equals(sp.getString("halloween2", "true")); // nouvelle clé : activé par défaut
         noel = !"false".equals(sp.getString("noel2", "true"));
+        blueMode = sp.getString("filtre", "off");
+        blueLevel = Integer.parseInt(sp.getString("filtreForce", "1"));
         theme = readString("theme", "photo");
         minMode = readString("minMode", "auto");
         kidsCode = readString("kidsCode", null);
@@ -120,6 +124,11 @@ class Store {
     void saveAnimations() { put("animations", animations ? "true" : "false"); }
 
     void saveHalloween() { put("halloween2", halloween ? "true" : "false"); }
+
+    void saveBlue() {
+        put("filtre", blueMode);
+        put("filtreForce", String.valueOf(blueLevel));
+    }
 
     void saveNoel() { put("noel2", noel ? "true" : "false"); }
 

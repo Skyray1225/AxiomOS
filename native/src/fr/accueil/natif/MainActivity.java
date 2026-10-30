@@ -271,6 +271,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         onInk(scene.ink(), scene.inkSoft(), scene.isDark());
         loadApps();
         syncGuard();
+        BlueFilter.sync(this); // filtre anti lumière bleue (démarre avec l'accueil, donc au démarrage de la box)
         if (pendingToast != null) {
             final String m = pendingToast;
             pendingToast = null;
@@ -1161,6 +1162,34 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     @Override
     public String minMode() {
         return store.minMode;
+    }
+
+    @Override
+    public String blueMode() {
+        return store.blueMode;
+    }
+
+    @Override
+    public int blueLevel() {
+        return store.blueLevel;
+    }
+
+    @Override
+    public void cycleBlueMode(int dir) {
+        String[] modes = {BlueFilter.OFF, BlueFilter.ON, BlueFilter.AUTO};
+        int i = java.util.Arrays.asList(modes).indexOf(store.blueMode);
+        store.blueMode = modes[((i < 0 ? 0 : i) + dir + 3) % 3];
+        store.saveBlue();
+        if (!BlueFilter.OFF.equals(store.blueMode) && !BlueFilter.allowed(this))
+            showToast("Autorisation « afficher par-dessus les autres applis » à donner une fois");
+        BlueFilter.sync(this);
+    }
+
+    @Override
+    public void cycleBlueLevel(int dir) {
+        store.blueLevel = Math.max(0, Math.min(2, store.blueLevel + dir));
+        store.saveBlue();
+        BlueFilter.sync(this);
     }
 
     @Override
