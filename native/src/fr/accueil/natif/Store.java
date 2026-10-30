@@ -41,6 +41,8 @@ class Store {
     static final String[] KIDS_DEFAULT = {"com.google.android.youtube.tv", "com.disney.disneyplus", "com.vectorunit.purple.googleplay"};
     final Set<String> kidsApps = new LinkedHashSet<>();
     String kidsCode, themePrev;
+    boolean kidsLimit;                                  // Kids : horaires limités
+    int[] kidsHours = {8 * 60, 20 * 60, 9 * 60, 21 * 60}; // semaine début/fin, week-end début/fin (minutes)
     private boolean pinsLoaded;
 
     Store(Context ctx) {
@@ -62,6 +64,12 @@ class Store {
         theme = readString("theme", "photo");
         minMode = readString("minMode", "auto");
         kidsCode = readString("kidsCode", null);
+        kidsLimit = "true".equals(sp.getString("kidsLimite", "false"));
+        try {
+            org.json.JSONArray kh = new org.json.JSONArray(sp.getString("kidsHoraires", "[480,1200,540,1260]"));
+            for (int i = 0; i < 4; i++) kidsHours[i] = kh.getInt(i);
+        } catch (Exception ignored) {
+        }
         themePrev = readString("themePrev", "photo");
         if (sp.contains("kidsApps")) {
             List<String> k = new ArrayList<>();
@@ -99,6 +107,8 @@ class Store {
         put("kidsApps", new JSONArray(new ArrayList<>(kidsApps)).toString());
         put("kidsCode", kidsCode == null ? "null" : JSONObject.quote(kidsCode));
         put("themePrev", JSONObject.quote(themePrev));
+        put("kidsLimite", kidsLimit ? "true" : "false");
+        put("kidsHoraires", "[" + kidsHours[0] + "," + kidsHours[1] + "," + kidsHours[2] + "," + kidsHours[3] + "]");
     }
 
     private void readList(String key, List<String> out) {

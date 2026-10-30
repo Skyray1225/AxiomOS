@@ -50,6 +50,8 @@
         </activity>
         <!-- Filtre anti lumière bleue : voile ambré sur tout l'écran, réglé dans les Préférences -->
         <service android:name=".BlueFilter" android:exported="false" />
+        <!-- Kids : fin de la plage horaire autorisée, retour à l'écran de pause -->
+        <receiver android:name=".KidsTime" android:exported="false" />
         <!-- Économiseur d'écran : inactif tant qu'on ne le choisit pas (settings secure screensaver_components) -->
         <service
             android:name=".AccueilDream"

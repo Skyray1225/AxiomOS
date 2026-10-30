@@ -117,6 +117,10 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     private KidsDialog kidsDialog;   // code et menu parent (Kids)
     private boolean kidsPick;        // Kids : choix des applis autorisées
     private TextView guardBadge;     // Kids : avertissement « protection inactive »
+    private SparkleView sparkle;     // Kids : étoiles autour de l'appli choisie
+    private FrameLayout rest;        // Kids : écran de pause en dehors des horaires
+    private TextView restWhen;
+    private static final int[] KID_FRAMES = {0xFFFF6B6B, 0xFF4DABF7, 0xFF51CF66, 0xFFFCC419, 0xFFB197FC, 0xFFFF922B};
     private static String pendingToast; // message à afficher après la reconstruction de l'écran
     private boolean hdmiConnected = true; // la télé reçoit-elle l'image ?
     private long lastIntro = 0;
@@ -257,6 +261,10 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
             gl.rightMargin = px(2);
             gl.bottomMargin = Math.round(2 * vh);
             root.addView(guardBadge, gl);
+            sparkle = new SparkleView(this, vw);
+            sparkle.setElevation(5 * vw); // au-dessus des tuiles soulevées
+            root.addView(sparkle, match());
+            buildRest();
         }
 
         // Intro AxiomOS, par-dessus tout
@@ -787,6 +795,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
                     float rnd = ((hsh >>> 1) % 1000) / 1000f;
                     tv.setTilt((i % 2 == 1 ? 1 : -1) * (1.2f + rnd * 2.8f), (((hsh >>> 10) % 100) / 100f * 1.2f - .6f) * vw);
                     tv.setKidState(kidsPick ? (store.kidsApps.contains(a.pkg) ? 1 : 2) : 0);
+                    tv.setFrameColor(KID_FRAMES[Math.floorMod(hsh, KID_FRAMES.length)]);
                 }
                 v = tv;
                 lp = new FrameLayout.LayoutParams(itemW, itemH);
@@ -851,6 +860,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
         focus = i;
         tiles.get(focus).setSelected(true, true, store.animations);
         scrollTo(true);
+        if (sparkle != null && store.animations) sparkleOn(focus);
         if (theme.title) showTitle(shown.get(focus).label);
         if (hero != null) ambientFor(focus, false);
     }
@@ -948,6 +958,10 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
 
     private void launch() {
         if (focus >= shown.size()) return;
+        if (theme == Theme.KIDS && !KidsTime.allowed(store, java.util.Calendar.getInstance())) { // en dehors des horaires
+            checkRest();
+            return;
+        }
         App a = shown.get(focus);
         store.recordLaunch(a.pkg);
         Intent i = new Intent(Intent.ACTION_MAIN)
@@ -1135,9 +1149,137 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     }
 
     @Override
+    public int kidsAppCount() {
+        return store.kidsApps.size();
+    }
+
+    @Override
+    public String kidsQuitTarget() {
+        String prev = Theme.available(store.themePrev) && !"kids".equals(store.themePrev) ? store.themePrev : "photo";
+        int i = java.util.Arrays.asList(PrefsView.THEMES).indexOf(prev);
+        return i >= 0 ? PrefsView.NAMES[i] : "Modern";
+    }
+
+    @Override
+    public boolean kidsLimit() {
+        return store.kidsLimit;
+    }
+
+    @Override
+    public int[] kidsHours() {
+        return store.kidsHours;
+    }
+
+    @Override
+    public void setKidsLimit(boolean on) {
+        store.kidsLimit = on;
+        store.saveKids();
+        KidsTime.schedule(this);
+        checkRest();
+    }
+
+    @Override
+    public void setKidsHours(int[] hours) {
+        store.kidsHours = hours;
+        store.saveKids();
+        KidsTime.schedule(this);
+        checkRest();
+    }
+
+    /** Kids : gerbe d'étoiles autour de la tuile choisie, dans la couleur de son cadre. */
+    private void sparkleOn(int i) {
+        if (i >= tiles.size() || !(tiles.get(i) instanceof TileView)) return;
+        final TileView t = (TileView) tiles.get(i);
+        t.post(() -> {
+            int[] a = new int[2], b = new int[2];
+            t.getLocationOnScreen(a);
+            sparkle.getLocationOnScreen(b);
+            float w = t.getWidth() * 1.1f, h = t.getHeight() * 1.1f;
+            float cx = a[0] - b[0] + t.getWidth() / 2f, cy = a[1] - b[1] + t.getHeight() / 2f;
+            sparkle.burst(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, t.frameColor());
+        });
+    }
+
+    /** Écran de pause : lune, étoiles et l'heure de reprise, à la place des applis. */
+    private void buildRest() {
+        rest = new FrameLayout(this);
+        rest.setVisibility(View.GONE);
+        rest.setElevation(6 * vw);
+        View night = new View(this) {
+            private final android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+            @Override
+            protected void onDraw(Canvas c) {
+                int w = getWidth(), h = getHeight();
+                p.setShader(new android.graphics.LinearGradient(0, 0, 0, h, new int[]{0xF2213A66, 0xF2355C8F, 0xF24A6FA0},
+                        null, android.graphics.Shader.TileMode.CLAMP));
+                c.drawRect(0, 0, w, h, p);
+                p.setShader(null);
+                java.util.Random r = new java.util.Random(3);
+                for (int k = 0; k < 70; k++) {
+                    p.setColor(0x99FFFFFF);
+                    c.drawCircle(r.nextFloat() * w, r.nextFloat() * h * .6f, .1f * vw + r.nextFloat() * .15f * vw, p);
+                }
+                float mx = w / 2f, my = h * .3f, mr = 6 * vw; // lune souriante
+                p.setColor(0x33FFF3B0);
+                c.drawCircle(mx, my, mr * 1.6f, p);
+                android.graphics.Path moon = new android.graphics.Path(), bite = new android.graphics.Path();
+                moon.addCircle(mx, my, mr, android.graphics.Path.Direction.CW);
+                bite.addCircle(mx + mr * .55f, my - mr * .35f, mr * .85f, android.graphics.Path.Direction.CW);
+                moon.op(bite, android.graphics.Path.Op.DIFFERENCE);
+                p.setColor(0xFFFFE9A0);
+                c.drawPath(moon, p);
+                p.setColor(0xFF8A6A3A);
+                c.drawCircle(mx - mr * .55f, my + mr * .05f, .35f * vw, p);
+                p.setColor(0x55FF8A7A);
+                c.drawCircle(mx - mr * .45f, my + mr * .4f, .7f * vw, p);
+            }
+        };
+        rest.addView(night, match());
+        LinearLayout txt = new LinearLayout(this);
+        txt.setOrientation(LinearLayout.VERTICAL);
+        txt.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView t1 = text(3.2f * vw, 700, 0, false);
+        t1.setText("C'est l'heure de faire une pause !");
+        t1.setTextColor(0xFFFFFFFF);
+        restWhen = text(1.8f * vw, 500, 0, false);
+        restWhen.setTextColor(0xD9FFFFFF);
+        t1.setGravity(Gravity.CENTER);
+        restWhen.setGravity(Gravity.CENTER);
+        txt.addView(t1, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wl.topMargin = px(1.2f);
+        txt.addView(restWhen, wl);
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP);
+        tl.topMargin = Math.round(H * .48f);
+        rest.addView(txt, tl);
+        root.addView(rest, match());
+    }
+
+    private final Runnable restCheck = this::checkRest;
+
+    /** Kids : écran de pause en dehors des horaires ; revérifié chaque minute. */
+    private void checkRest() {
+        if (rest == null) return;
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        boolean pause = !kidsPick && !KidsTime.allowed(store, now);
+        if (pause) restWhen.setText("Les dessins animés reviennent " + KidsTime.nextStart(store, now));
+        if (pause != (rest.getVisibility() == View.VISIBLE)) {
+            rest.animate().cancel();
+            if (pause) {
+                rest.setAlpha(0);
+                rest.setVisibility(View.VISIBLE);
+                rest.animate().alpha(1).setDuration(600);
+            } else rest.animate().alpha(0).setDuration(400).withEndAction(() -> rest.setVisibility(View.GONE));
+        }
+        ui.removeCallbacks(restCheck);
+        ui.postDelayed(restCheck, 60000 - System.currentTimeMillis() % 60000 + 100);
+    }
+
+    @Override
     public void kidsMenu(int row) {
         if (row == 0) setKidsPick(true);
-        else if (row == 1) kidsDialog.openCode("set1", null);
+        else if (row == 2) kidsDialog.openCode("set1", null);
         else { // quitter le mode Kids : retour au thème d'avant
             String prev = store.themePrev;
             switchTheme(Theme.available(prev) && !"kids".equals(prev) ? prev : "photo");
@@ -1147,6 +1289,7 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     /** Choix des applis autorisées : toutes les applis s'affichent, OK autorise ou retire. */
     private void setKidsPick(boolean on) {
         kidsPick = on;
+        checkRest(); // le choix des applis passe devant l'écran de pause
         String keep = focus < shown.size() ? shown.get(focus).pkg : null;
         buildDock(keep);
         hint.animate().alpha(on ? 1 : 0).translationY(on ? 0 : vw).setDuration(on ? 500 : 400).setInterpolator(EASE);
@@ -1166,6 +1309,8 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     private void syncGuard() {
         KidsGuard.set(this, theme == Theme.KIDS, new java.util.HashSet<>(store.kidsApps));
         checkGuard();
+        KidsTime.schedule(this); // alarme de fin de plage horaire (ou annulée hors Kids)
+        checkRest();
     }
 
     private final Runnable guardCheck = this::checkGuard;

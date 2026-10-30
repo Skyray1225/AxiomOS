@@ -752,35 +752,164 @@ class SceneView extends FrameLayout {
         }
     }
 
-    /** Fond Kids : ciel dégradé, soleil en haut à droite, nuage flou en bas à gauche. */
+    /**
+     * Fond Kids : petite scène en papier découpé, dessinée une fois (rien ne bouge, rien ne coûte) :
+     * ciel dégradé, soleil souriant à rayons, arc-en-ciel, nuages dodus, trois collines pastel avec
+     * leur ombre douce, arbres sucettes et fleurs.
+     */
     private static class KidsBackground extends View {
-        private final Paint sky = new Paint(), sun = new Paint(Paint.ANTI_ALIAS_FLAG), cloud = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private Bitmap scene;
 
         KidsBackground(Context ctx) {
             super(ctx);
-            cloud.setColor(0x8CFFFFFF);
-            setLayerType(LAYER_TYPE_SOFTWARE, null); // flou du nuage (dessiné une fois)
         }
 
         @Override
         protected void onSizeChanged(int w, int h, int ow, int oh) {
-            float vw = w / 100f;
-            sky.setShader(new android.graphics.LinearGradient(0, 0, 0, h, new int[]{0xFFA9DCFF, 0xFFDFF3FF, 0xFFFFF4D6},
-                    new float[]{0, .55f, 1}, Shader.TileMode.CLAMP));
-            float r = 13 * vw, cx = w + 6 * vw - r, cy = -8 * vw + r;
-            sun.setShader(new RadialGradient(cx, cy, r, new int[]{0xFFFFF3A8, 0xFFFFD75A, 0x00FFD75A},
-                    new float[]{0, .6f / .7f, 1}, Shader.TileMode.CLAMP));
-            cloud.setMaskFilter(new android.graphics.BlurMaskFilter(vw, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            if (w == 0 || h == 0) return;
+            if (scene != null) scene.recycle();
+            scene = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(scene);
+            c.scale(w / 1920f, h / 1080f);
+            paint(c);
         }
 
         @Override
         protected void onDraw(Canvas c) {
-            int w = getWidth(), h = getHeight();
-            float vw = w / 100f;
-            c.drawRect(0, 0, w, h, sky);
-            float r = 13 * vw;
-            c.drawCircle(w + 6 * vw - r, -8 * vw + r, r, sun);
-            c.drawOval(-8 * vw, h + 6 * vw - 16 * vw, 32 * vw, h + 6 * vw, cloud);
+            if (scene != null) c.drawBitmap(scene, 0, 0, null);
+        }
+
+        private static void paint(Canvas c) {
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setShader(new android.graphics.LinearGradient(0, 0, 0, 1080, new int[]{0xFF8FD3FF, 0xFFC9ECFF, 0xFFFFF4D9},
+                    new float[]{0, .5f, 1}, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, 1920, 1080, p);
+            p.setShader(null);
+            // soleil : halo, rayons arrondis, disque, visage
+            float sx = 1720, sy = 170;
+            p.setShader(new RadialGradient(sx, sy, 260, 0x66FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP));
+            c.drawCircle(sx, sy, 260, p);
+            p.setShader(null);
+            p.setColor(0xFFFFD45C);
+            for (int k = 0; k < 12; k++) {
+                c.save();
+                c.rotate(k * 30, sx, sy);
+                c.drawRoundRect(sx - 9, sy - 150, sx + 9, sy - 112, 9, 9, p);
+                c.restore();
+            }
+            p.setColor(0xFFFFC93C);
+            c.drawCircle(sx, sy, 95, p);
+            p.setColor(0xFFFFDB6B);
+            c.drawCircle(sx - 18, sy - 18, 70, p);
+            p.setColor(0xFF8A5A1E);
+            c.drawCircle(sx - 30, sy - 12, 8, p);
+            c.drawCircle(sx + 30, sy - 12, 8, p);
+            Paint st = new Paint(Paint.ANTI_ALIAS_FLAG);
+            st.setStyle(Paint.Style.STROKE);
+            st.setStrokeWidth(7);
+            st.setStrokeCap(Paint.Cap.ROUND);
+            st.setColor(0xFF8A5A1E);
+            c.drawArc(sx - 32, sy - 10, sx + 32, sy + 38, 20, 140, false, st);
+            p.setColor(0x66FF8A7A);
+            c.drawCircle(sx - 52, sy + 16, 14, p);
+            c.drawCircle(sx + 52, sy + 16, 14, p);
+            // arc-en-ciel derrière les collines, à gauche
+            int[] rb = {0xFFFF8A80, 0xFFFFB74D, 0xFFFFE57F, 0xFFA5D6A7, 0xFF81D4FA, 0xFFB39DDB};
+            st.setStrokeCap(Paint.Cap.BUTT);
+            st.setStrokeWidth(26);
+            for (int k = 0; k < rb.length; k++) {
+                st.setColor((rb[k] & 0x00FFFFFF) | 0xB3000000);
+                float r = 400 - k * 26;
+                c.drawArc(330 - r, 800 - r, 330 + r, 800 + r, 180, 180, false, st);
+            }
+            // nuages dodus : ombre bleutée dessous, bosses blanches
+            float[][] clouds = {{360, 190, 1.1f}, {980, 120, .8f}, {1310, 300, .7f}, {150, 420, .6f}};
+            for (float[] cl : clouds) cloud(c, cl[0], cl[1], cl[2]);
+            // collines en papier découpé, de la plus lointaine à la plus proche
+            hill(c, 700, 60, .0032f, 1.1f, 0xFFA8E0B5);
+            hill(c, 790, 70, .0026f, 3.3f, 0xFF8FD49A);
+            // arbres sucettes sur la colline du milieu
+            int[] crowns = {0xFF5CC97B, 0xFFFF9FB2, 0xFF7BD389, 0xFFFFC46B, 0xFF5CC97B};
+            float[] tx = {120, 300, 1560, 1700, 1850};
+            for (int k = 0; k < tx.length; k++) {
+                float x = tx[k], base = hillY(x, 790, 70, .0026f, 3.3f) + 14, hgt = 120 + (k % 2) * 30;
+                p.setColor(0xFF9C6B4A);
+                c.drawRoundRect(x - 8, base - hgt * .55f, x + 8, base, 6, 6, p);
+                p.setColor(crowns[k]);
+                c.drawCircle(x, base - hgt * .7f, hgt * .32f, p);
+                p.setColor(0x40FFFFFF);
+                c.drawCircle(x - hgt * .1f, base - hgt * .8f, hgt * .14f, p);
+            }
+            hill(c, 900, 60, .0021f, 5.1f, 0xFF78C987);
+            // fleurs sur la colline de devant
+            java.util.Random rnd = new java.util.Random(7);
+            int[] fl = {0xFFFF8A80, 0xFFFFE066, 0xFFFFFFFF, 0xFFB39DDB, 0xFFFF9FCF};
+            for (int k = 0; k < 70; k++) {
+                float x = rnd.nextFloat() * 1920, y = hillY(x, 900, 60, .0021f, 5.1f) + 30 + rnd.nextFloat() * 120;
+                int col = fl[rnd.nextInt(fl.length)];
+                p.setColor(col);
+                for (int q = 0; q < 5; q++) {
+                    double a = q * Math.PI * 2 / 5;
+                    c.drawCircle(x + (float) Math.cos(a) * 6, y + (float) Math.sin(a) * 6, 5, p);
+                }
+                p.setColor(0xFFFFC93C);
+                c.drawCircle(x, y, 4, p);
+            }
+        }
+
+        private static float hillY(float x, float base, float amp, float f, float ph) {
+            return base + amp * (float) (Math.sin(x * f + ph) * .75 + Math.sin(x * f * 1.9 + ph * 1.4) * .25);
+        }
+
+        private static void hill(Canvas c, float base, float amp, float f, float ph, int color) {
+            android.graphics.Path d = new android.graphics.Path();
+            d.moveTo(-20, 1080);
+            for (int x = -20; x <= 1940; x += 12) d.lineTo(x, hillY(x, base, amp, f, ph));
+            d.lineTo(1940, 1080);
+            d.close();
+            Paint sh = new Paint(Paint.ANTI_ALIAS_FLAG);
+            sh.setColor(0x33205030);
+            sh.setMaskFilter(new android.graphics.BlurMaskFilter(10, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            c.save();
+            c.translate(0, -5);
+            c.drawPath(d, sh);
+            c.restore();
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setColor(color);
+            c.drawPath(d, p);
+            Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
+            edge.setStyle(Paint.Style.STROKE);
+            edge.setStrokeWidth(3);
+            edge.setColor(0x59FFFFFF);
+            android.graphics.Path ridge = new android.graphics.Path();
+            ridge.moveTo(-20, hillY(-20, base, amp, f, ph));
+            for (int x = -20; x <= 1940; x += 12) ridge.lineTo(x, hillY(x, base, amp, f, ph));
+            c.drawPath(ridge, edge);
+        }
+
+        private static void cloud(Canvas c, float x, float y, float s) {
+            android.graphics.Path cl = new android.graphics.Path();
+            cl.addRoundRect(x - 120 * s, y - 20 * s, x + 120 * s, y + 34 * s, 27 * s, 27 * s, android.graphics.Path.Direction.CW);
+            cl.addCircle(x - 60 * s, y - 14 * s, 46 * s, android.graphics.Path.Direction.CW);
+            cl.addCircle(x + 10 * s, y - 38 * s, 62 * s, android.graphics.Path.Direction.CW);
+            cl.addCircle(x + 72 * s, y - 8 * s, 40 * s, android.graphics.Path.Direction.CW);
+            android.graphics.Path u = new android.graphics.Path();
+            u.op(cl, android.graphics.Path.Op.UNION);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setColor(0x40507AA0);
+            p.setMaskFilter(new android.graphics.BlurMaskFilter(12 * s, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            c.save();
+            c.translate(0, 10 * s);
+            c.drawPath(u, p);
+            c.restore();
+            p.setMaskFilter(null);
+            p.setColor(0xFFFFFFFF);
+            c.drawPath(u, p);
+            c.save();
+            c.clipPath(u);
+            p.setColor(0xFFE3F1FB);
+            c.drawRect(x - 140 * s, y + 14 * s, x + 140 * s, y + 40 * s, p);
+            c.restore();
         }
     }
 

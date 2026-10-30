@@ -80,6 +80,7 @@ class TileView extends View implements DockItem {
     private float tiltRot, tiltDy; // Kids : inclinaison propre à chaque appli
     private int kidState;          // Kids, choix des applis : 0 rien, 1 autorisée, 2 non autorisée
     private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private int frame = 0xFFFF6B6B; // Kids : couleur du cadre propre à l'appli
 
     TileView(Context ctx, Bitmap banner, float vw, Style style) {
         super(ctx);
@@ -117,19 +118,18 @@ class TileView extends View implements DockItem {
         bmpPaint.setColorFilter(hiddenApp || kidState == 2 ? GREY : editing && !selected ? DIM : null);
         if (banner != null) c.drawBitmap(banner, null, bounds, bmpPaint);
         else c.drawColor(0xFF2A2D33);
-        if (style.kids) { // bordure blanche ; sélectionnée : jaune, entourée d'orange
+        if (style.kids) { // cadre de couleur propre à l'appli, liseré blanc ; sélectionnée : cadre épais et vif
             borderPaint.setStyle(Paint.Style.STROKE);
-            if (selected) {
-                borderPaint.setColor(0xFFFFCF3A);
-                borderPaint.setStrokeWidth(1.5f * vw);
-                c.drawRoundRect(bounds, radius, radius, borderPaint);
-                borderPaint.setColor(0xFFFF9F1C);
-                borderPaint.setStrokeWidth(.8f * vw);
-            } else {
-                borderPaint.setColor(0xFFFFFFFF);
-                borderPaint.setStrokeWidth(.7f * vw);
-            }
+            float fw = (selected ? 1.3f : .75f) * vw;
+            borderPaint.setColor(selected ? frame : (frame & 0x00FFFFFF) | 0xD9000000);
+            borderPaint.setStrokeWidth(2 * fw); // centré sur le bord : la moitié intérieure se voit
             c.drawRoundRect(bounds, radius, radius, borderPaint);
+            borderPaint.setColor(0xFFFFFFFF);
+            borderPaint.setStrokeWidth(.28f * vw);
+            RectF in = new RectF(bounds);
+            in.inset(fw, fw);
+            float ir = Math.max(0, radius - fw);
+            c.drawRoundRect(in, ir, ir, borderPaint);
             if (kidState == 1) { // ✓ vert : appli autorisée
                 float d = 2 * vw, x = getWidth() - .6f * vw - d, y = .6f * vw;
                 badgePaint.setColor(0xFF2FB36B);
@@ -164,6 +164,20 @@ class TileView extends View implements DockItem {
         c.drawCircle(x + s / 2, y + s / 2, s / 2, badgePaint);
         icon.setBounds(Math.round(x + pad), Math.round(y + pad), Math.round(x + s - pad), Math.round(y + s - pad));
         icon.draw(c);
+    }
+
+    /** Kids : couleur du cadre, et lueur de la même couleur autour de la tuile sélectionnée. */
+    void setFrameColor(int color) {
+        frame = color;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            setOutlineSpotShadowColor(color);
+            setOutlineAmbientShadowColor(color);
+        }
+        invalidate();
+    }
+
+    int frameColor() {
+        return frame;
     }
 
     /** Kids : inclinaison (degrés) et décalage vertical (px) propres à l'appli. */
@@ -217,8 +231,8 @@ class TileView extends View implements DockItem {
     /** Zoom de la tuile sélectionnée ; en édition, elle se soulève et se dandine. */
     private void updateTransform(boolean animate) {
         if (style.kids) { // se redresse un peu, monte et grossit avec un petit rebond
-            float scale = selected ? style.focusScale : 1f, dy = tiltDy - (selected ? .6f * vw : 0), rot = selected ? tiltRot * .2f : tiltRot;
-            setTranslationZ(selected ? vw : 0);
+            float scale = selected ? 1.1f : 1f, dy = tiltDy - (selected ? .8f * vw : 0), rot = selected ? 0 : tiltRot;
+            setTranslationZ(selected ? 2.4f * vw : 0); // ombre colorée plus large : la tuile « brille »
             animate().cancel();
             if (animate && selected) {
                 setScaleX(.96f);
