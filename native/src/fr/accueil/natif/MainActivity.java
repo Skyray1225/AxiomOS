@@ -1186,6 +1186,21 @@ public class MainActivity extends Activity implements PrefsView.Host, KidsDialog
     }
 
     @Override
+    public int brightness() {
+        return store.brightness;
+    }
+
+    @Override
+    public void stepBrightness(int dir) {
+        int b = Math.max(30, Math.min(100, store.brightness + dir * 10));
+        if (b == store.brightness) return;
+        store.brightness = b;
+        store.saveBlue();
+        if (b < 100 && !BlueFilter.allowed(this)) showToast("Autorisation « afficher par-dessus les autres applis » à donner une fois");
+        BlueFilter.sync(this);
+    }
+
+    @Override
     public void cycleBlueLevel(int dir) {
         store.blueLevel = Math.max(0, Math.min(2, store.blueLevel + dir));
         store.saveBlue();

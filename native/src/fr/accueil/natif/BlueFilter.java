@@ -17,10 +17,12 @@ import android.view.WindowManager;
 import java.util.Calendar;
 
 /**
- * Filtre anti lumière bleue sur tout l'écran, par-dessus toutes les applis (la box n'a pas de
+ * Filtre anti lumière bleue et réglage de luminosité sur tout l'écran, par-dessus toutes les applis (la box n'a pas de
  * « lumière nocturne » système). Un voile ambré, transparent aux touches de la télécommande, posé
  * par un service au premier plan. Mode : désactivé, activé, ou automatique (du coucher au lever
- * du soleil, comme la nuit du thème Thinking), avec un fondu à chaque changement.
+ * du soleil, comme la nuit du thème Thinking), avec un fondu à chaque changement. La luminosité
+ * (une box HDMI n'a pas de rétroéclairage à piloter) est un voile noir : de 100 % (image d'origine)
+ * à 30 %.
  * Nécessite l'autorisation « afficher par-dessus les autres applis » (appops SYSTEM_ALERT_WINDOW).
  */
 public class BlueFilter extends Service {
@@ -31,14 +33,14 @@ public class BlueFilter extends Service {
     private static final float[] LEVELS = {.14f, .22f, .32f};
 
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private View veil;
+    private View veil, dim;
     private WindowManager wm;
 
     /** Démarre, met à jour ou arrête le filtre selon les réglages. */
     static void sync(Context ctx) {
         Store s = new Store(ctx);
         Intent i = new Intent(ctx, BlueFilter.class);
-        if (OFF.equals(s.blueMode)) ctx.stopService(i);
+        if (OFF.equals(s.blueMode) && s.brightness >= 100) ctx.stopService(i);
         else if (Settings.canDrawOverlays(ctx)) ctx.startForegroundService(i);
     }
 
@@ -60,6 +62,9 @@ public class BlueFilter extends Service {
         veil = new View(this);
         veil.setBackgroundColor(0xFF000000 | AMBER);
         veil.setAlpha(0);
+        dim = new View(this);
+        dim.setBackgroundColor(0xFF000000);
+        dim.setAlpha(0);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -68,6 +73,7 @@ public class BlueFilter extends Service {
                 PixelFormat.TRANSLUCENT);
         try {
             wm.addView(veil, lp);
+            wm.addView(dim, new WindowManager.LayoutParams(lp.width, lp.height, lp.type, lp.flags, lp.format));
         } catch (Exception e) { // autorisation retirée entre-temps
             stopSelf();
             return;
@@ -91,6 +97,8 @@ public class BlueFilter extends Service {
             boolean on = ON.equals(s.blueMode) || (AUTO.equals(s.blueMode) && SceneView.isNight(Calendar.getInstance()));
             float target = on ? LEVELS[Math.max(0, Math.min(2, s.blueLevel))] : 0;
             if (Math.abs(veil.getAlpha() - target) > .001f) veil.animate().alpha(target).setDuration(on ? 4000 : 2000);
+            float shade = 1 - Math.max(30, Math.min(100, s.brightness)) / 100f;
+            if (Math.abs(dim.getAlpha() - shade) > .001f) dim.animate().alpha(shade).setDuration(250);
             ui.postDelayed(this, 60000);
         }
     };
@@ -98,13 +106,14 @@ public class BlueFilter extends Service {
     @Override
     public void onDestroy() {
         ui.removeCallbacks(tick);
-        if (veil != null) {
+        for (View v : new View[]{veil, dim}) {
+            if (v == null) continue;
             try {
-                wm.removeView(veil);
+                wm.removeView(v);
             } catch (Exception ignored) {
             }
-            veil = null;
         }
+        veil = dim = null;
         super.onDestroy();
     }
 

@@ -34,6 +34,7 @@ class Store {
     boolean noel;      // Thinking : décor de Noël pendant sa période (idem)
     String blueMode;   // filtre anti lumière bleue : off, on, auto (la nuit)
     int blueLevel;     // intensité du filtre : 0 légère, 1 moyenne, 2 forte
+    int brightness;    // luminosité de l'écran, en % (30 … 100 ; 100 = image d'origine)
     String theme, minMode; // thème ; apparence de Minimal : auto, light, dark
     // Kids : applis autorisées, code parent (4 flèches, ex. "U,U,L,R"), thème à retrouver en quittant Kids
     static final String[] KIDS_DEFAULT = {"com.google.android.youtube.tv", "com.disney.disneyplus", "com.vectorunit.purple.googleplay"};
@@ -55,6 +56,7 @@ class Store {
         noel = !"false".equals(sp.getString("noel2", "true"));
         blueMode = sp.getString("filtre", "off");
         blueLevel = Integer.parseInt(sp.getString("filtreForce", "1"));
+        brightness = Integer.parseInt(sp.getString("luminosite", "100"));
         theme = readString("theme", "photo");
         minMode = readString("minMode", "auto");
         kidsCode = readString("kidsCode", null);
@@ -128,6 +130,7 @@ class Store {
     void saveBlue() {
         put("filtre", blueMode);
         put("filtreForce", String.valueOf(blueLevel));
+        put("luminosite", String.valueOf(brightness));
     }
 
     void saveNoel() { put("noel2", noel ? "true" : "false"); }

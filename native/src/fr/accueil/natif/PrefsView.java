@@ -47,6 +47,8 @@ class PrefsView extends FrameLayout {
         int blueLevel();
         void cycleBlueMode(int dir);
         void cycleBlueLevel(int dir);
+        int brightness();
+        void stepBrightness(int dir);
         Typeface font(int weight);
     }
 
@@ -62,9 +64,12 @@ class PrefsView extends FrameLayout {
     private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
     private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow;
     private final TextView darkValue, blueValue, levelValue;
-    private final LinearLayout blueRow, levelRow;
+    private final LinearLayout blueRow, levelRow, lightRow;
+    private final SliderView lightSlider;
+    private final TextView lightValue;
     private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch;
     private int row = 0, card = 1;
+    private final android.widget.ScrollView scroll;
     private String theme = "photo";
     private boolean light;
 
@@ -74,13 +79,24 @@ class PrefsView extends FrameLayout {
         this.vw = vw;
         setBackgroundColor(0x73080C12);
 
-        LinearLayout box = sheet = new LinearLayout(ctx);
+        // la carte ; si son contenu dépasse l'écran, il défile pour garder la rangée choisie visible
+        sheet = new LinearLayout(ctx);
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        sheet.setPadding(px(2.6f), px(1.6f), px(2.6f), px(1.2f));
+        sheet.setElevation(3 * vw);
+        LayoutParams blp = new LayoutParams(px(58), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        blp.topMargin = blp.bottomMargin = px(1.6f);
+        addView(sheet, blp);
+        scroll = new android.widget.ScrollView(ctx);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOverScrollMode(OVER_SCROLL_NEVER);
+        scroll.setFocusable(false);
+        sheet.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout box = new LinearLayout(ctx);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setClipChildren(false); // la carte sélectionnée se soulève
-        box.setPadding(px(2.6f), px(2.2f), px(2.6f), px(1.7f));
-        box.setElevation(3 * vw);
-        LayoutParams blp = new LayoutParams(px(58), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
-        addView(box, blp);
+        box.setPadding(0, px(.6f), 0, px(.5f));
+        scroll.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = text("Préférences", 2f, 500, 1f);
         box.addView(title, lp(0, 0, 0, px(1.6f)));
@@ -144,6 +160,14 @@ class PrefsView extends FrameLayout {
         dlp.bottomMargin = px(.5f);
         box.addView(darkRow, dlp);
 
+        lightRow = row("Luminosité", "← → pour baisser ou remonter ; 100 % : image normale de la télé");
+        lightSlider = new SliderView(ctx, vw);
+        lightRow.addView(lightSlider, new LinearLayout.LayoutParams(px(12), px(1.9f)));
+        lightValue = text("", 1.25f, 500, 1f);
+        lightValue.setMinWidth(px(4.2f));
+        lightValue.setGravity(Gravity.END);
+        lightRow.addView(lightValue, lp(px(1), 0, 0, 0));
+        box.addView(lightRow, dlp2());
         blueRow = row("Filtre lumière bleue", "Sur tout l'écran, applis comprises ; Auto : du coucher au lever du soleil");
         blueValue = valueBox(blueRow);
         box.addView(blueRow, dlp2());
@@ -163,14 +187,14 @@ class PrefsView extends FrameLayout {
         flp.topMargin = px(.5f);
         box.addView(lifeRow, flp);
 
-        halRow = row("Décor d'Halloween", "Citrouilles, tombes, hutte de sorcière, fantômes");
+        halRow = row("Décor d'Halloween", "Du 15 octobre au 1er novembre : citrouilles, guirlandes, chauves-souris");
         halSwitch = new SwitchView(ctx, vw, halOn);
         halRow.addView(halSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         hlp.topMargin = px(.5f);
         box.addView(halRow, hlp);
 
-        noelRow = row("Décor de Noël", "Sucres d'orge, cadeaux, maison en pain d'épices, traîneau");
+        noelRow = row("Décor de Noël", "Du 1er au 25 décembre : sapins illuminés, lanternes, traîneau");
         noelSwitch = new SwitchView(ctx, vw, noelOn);
         noelRow.addView(noelSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -199,6 +223,22 @@ class PrefsView extends FrameLayout {
         return r;
     }
 
+    /** Fait défiler la carte pour que la rangée choisie soit entièrement visible. */
+    private void keepVisible(String id, boolean animate) {
+        final View v = "dark".equals(id) ? darkRow : "light".equals(id) ? lightRow : "blue".equals(id) ? blueRow
+                : "level".equals(id) ? levelRow : "anim".equals(id) ? animRow : "life".equals(id) ? lifeRow
+                : "halloween".equals(id) ? halRow : "noel".equals(id) ? noelRow : null;
+        scroll.post(() -> {
+            int h = scroll.getHeight(), y = scroll.getScrollY(), m = px(1.5f), target = y;
+            if (v == null) target = 0; // rangée des thèmes : en haut
+            else if (v.getBottom() + m > y + h) target = v.getBottom() + m - h;
+            else if (v.getTop() - m < y) target = v.getTop() - m;
+            if (target == y) return;
+            if (animate) scroll.smoothScrollTo(0, target);
+            else scroll.scrollTo(0, target);
+        });
+    }
+
     /** Valeur à choisir avec ‹ › à droite d'une rangée. */
     private TextView valueBox(LinearLayout r) {
         TextView v = text("", 1.25f, 500, 1f);
@@ -222,6 +262,7 @@ class PrefsView extends FrameLayout {
         java.util.List<String> r = new java.util.ArrayList<>();
         r.add("themes");
         if ("minimal".equals(theme)) r.add("dark");
+        r.add("light");
         r.add("blue");
         if (!BlueFilter.OFF.equals(host.blueMode())) r.add("level");
         r.add("anim");
@@ -345,6 +386,7 @@ class PrefsView extends FrameLayout {
                 if (row == 0) card = Math.max(0, Math.min(5, card + d));
                 else if ("dark".equals(rows[row])) host.cycleMinMode(d);
                 else if ("blue".equals(rows[row])) host.cycleBlueMode(d);
+                else if ("light".equals(rows[row])) host.stepBrightness(d);
                 else if ("level".equals(rows[row])) host.cycleBlueLevel(d);
                 else if ("life".equals(rows[row])) host.setLifeFx(!lifeSwitch.on);
                 else if ("halloween".equals(rows[row])) host.setHalloween(!halSwitch.on);
@@ -392,11 +434,15 @@ class PrefsView extends FrameLayout {
         levelValue.setText(new String[]{"Légère", "Moyenne", "Forte"}[Math.max(0, Math.min(2, host.blueLevel()))]);
         levelRow.setVisibility(BlueFilter.OFF.equals(bm) ? GONE : VISIBLE);
         blueRow.setBackground(rowBg("blue".equals(rows[row])));
+        lightRow.setBackground(rowBg("light".equals(rows[row])));
+        lightSlider.set((host.brightness() - 30) / 70f);
+        lightValue.setText(host.brightness() + " %");
         levelRow.setBackground(rowBg("level".equals(rows[row])));
         animRow.setBackground(rowBg("anim".equals(rows[row])));
         lifeRow.setBackground(rowBg("life".equals(rows[row])));
         halRow.setBackground(rowBg("halloween".equals(rows[row])));
         noelRow.setBackground(rowBg("noel".equals(rows[row])));
+        keepVisible(rows[row], animate);
     }
 
     private GradientDrawable rowBg(boolean sel) {
@@ -445,6 +491,37 @@ class PrefsView extends FrameLayout {
     }
 
     /** Interrupteur vert / gris, pastille qui glisse. */
+    /** Curseur : piste, partie remplie, pastille. */
+    static class SliderView extends View {
+        private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG), knob = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final float vw;
+        private float pos = 1;
+
+        SliderView(Context ctx, float vw) {
+            super(ctx);
+            this.vw = vw;
+            knob.setColor(0xFFFFFFFF);
+            knob.setShadowLayer(.3f * vw, 0, 2, 0x40000000);
+            setLayerType(LAYER_TYPE_SOFTWARE, null);
+        }
+
+        void set(float p) {
+            pos = Math.max(0, Math.min(1, p));
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float w = getWidth(), h = getHeight(), r = .65f * vw, th = .45f * vw, x0 = r, x1 = w - r, cy = h / 2;
+            track.setColor(0x40FFFFFF);
+            c.drawRoundRect(x0, cy - th / 2, x1, cy + th / 2, th / 2, th / 2, track);
+            float x = x0 + (x1 - x0) * pos;
+            track.setColor(0xFF2F8A5B);
+            c.drawRoundRect(x0, cy - th / 2, x, cy + th / 2, th / 2, th / 2, track);
+            c.drawCircle(x, cy, r, knob);
+        }
+    }
+
     static class SwitchView extends View {
         private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG), knob = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float vw;
