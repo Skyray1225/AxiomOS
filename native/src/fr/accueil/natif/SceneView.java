@@ -70,6 +70,7 @@ class SceneView extends FrameLayout {
     private ImageView[] lands;        // Thinking : deux paysages, en fondu l'un sur l'autre
     private WeatherView wx;           // Thinking : météo dans le paysage
     private LifeView life;            // Thinking : effets de saison
+    private PersoView perso;          // Thinking : personnage en haut à gauche
     private Bitmap landBmp;           // paysage affiché
     private int landIdx = -1, landOn = 0;
     private String landSeason;
@@ -141,6 +142,16 @@ class SceneView extends FrameLayout {
                 wx = new WeatherView(ctx);
                 wx.setAnimations(store.animations);
                 addView(wx, new LayoutParams(full));
+                Bitmap pb = decodeAsset("images/personnage.png");
+                if (pb != null) {
+                    perso = new PersoView(ctx, pb);
+                    int ph = Math.round(34 * h / 100f), pw = Math.round(ph * pb.getWidth() / (float) pb.getHeight());
+                    LayoutParams pl = new LayoutParams(pw + Math.round(2 * w / 100f), ph + Math.round(2 * w / 100f), Gravity.TOP | Gravity.LEFT);
+                    pl.leftMargin = Math.round(.8f * w / 100f);
+                    pl.topMargin = Math.round(1.5f * h / 100f);
+                    addView(perso, pl);
+                    perso.setVisibility(store.perso ? VISIBLE : GONE);
+                }
                 worker.execute(() -> {
                     Bitmap c = Landscape.weatherClouds(w, h), d = Landscape.weatherClouds(w, h, true);
                     ui.post(() -> wx.setCloudBitmaps(c, d));
@@ -285,6 +296,17 @@ class SceneView extends FrameLayout {
         if (life != null) life.setActive(on && store.lifeFx);
     }
 
+    /** Thinking : afficher ou masquer le personnage (en fondu). */
+    void setPersoVisible(boolean on) {
+        if (perso == null) return;
+        perso.animate().cancel();
+        if (on) {
+            perso.setAlpha(0);
+            perso.setVisibility(VISIBLE);
+            perso.animate().alpha(1).setDuration(400);
+        } else perso.animate().alpha(0).setDuration(300).withEndAction(() -> perso.setVisibility(GONE));
+    }
+
     void setLifeFx(boolean on) {
         if (life != null) life.setActive(store.animations && on);
     }
@@ -406,6 +428,7 @@ class SceneView extends FrameLayout {
             }
             if (wxCode >= 0) showWeatherIcon();
             if (wx != null) wx.setNight(n);
+            if (perso != null) perso.setNight(n);
             if (theme == Theme.THINKING) {
                 applyInk(animate);
                 if (landBmp != null) sendBackdrop();

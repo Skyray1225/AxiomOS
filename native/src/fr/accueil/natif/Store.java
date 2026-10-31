@@ -33,6 +33,7 @@ class Store {
     boolean halloween; // Thinking : décor d'Halloween pendant sa période (activé sauf si l'utilisateur l'a coupé)
     boolean noel;      // Thinking : décor de Noël pendant sa période (idem)
     boolean paques;    // Thinking : décor de Pâques pendant sa période (idem)
+    boolean perso;     // Thinking : personnage en haut à gauche
     String blueMode;   // filtre anti lumière bleue : off, on, auto (la nuit)
     int blueLevel;     // intensité du filtre : 0 légère, 1 moyenne, 2 forte
     int brightness;    // luminosité de l'écran, en % (30 … 100 ; 100 = image d'origine)
@@ -58,6 +59,7 @@ class Store {
         halloween = !"false".equals(sp.getString("halloween2", "true")); // nouvelle clé : activé par défaut
         noel = !"false".equals(sp.getString("noel2", "true"));
         paques = !"false".equals(sp.getString("paques", "true"));
+        perso = !"false".equals(sp.getString("personnage", "true"));
         blueMode = sp.getString("filtre", "off");
         blueLevel = Integer.parseInt(sp.getString("filtreForce", "1"));
         brightness = Integer.parseInt(sp.getString("luminosite", "100"));
@@ -144,6 +146,8 @@ class Store {
         put("filtreForce", String.valueOf(blueLevel));
         put("luminosite", String.valueOf(brightness));
     }
+
+    void savePerso() { put("personnage", perso ? "true" : "false"); }
 
     void savePaques() { put("paques", paques ? "true" : "false"); }
 

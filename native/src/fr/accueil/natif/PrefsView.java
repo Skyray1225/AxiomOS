@@ -41,6 +41,7 @@ class PrefsView extends FrameLayout {
         void setHalloween(boolean on);
         void setNoel(boolean on);
         void setPaques(boolean on);
+        void setPerso(boolean on);
         void closePrefs();
         String minMode();
         void cycleMinMode(int dir);
@@ -63,12 +64,12 @@ class PrefsView extends FrameLayout {
     private final LinearLayout[] cards = new LinearLayout[6];
     private final TextView[] checks = new TextView[6];
     private final List<TextView> texts = new ArrayList<>(); // recolorés en version claire
-    private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow, paqRow;
+    private final LinearLayout sheet, animRow, darkRow, lifeRow, halRow, noelRow, paqRow, persoRow;
     private final TextView darkValue, blueValue, levelValue;
     private final LinearLayout blueRow, levelRow, lightRow;
     private final SliderView lightSlider;
     private final TextView lightValue;
-    private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch, paqSwitch;
+    private final SwitchView animSwitch, lifeSwitch, halSwitch, noelSwitch, paqSwitch, persoSwitch;
     private int row = 1, card = 1;
     private int page = 0; // onglet : 0 Thème, 1 Écran, 2 Décor
     private static final String[] TABS = {"Thème", "Écran", "Décor"};
@@ -79,7 +80,7 @@ class PrefsView extends FrameLayout {
     private String theme = "photo";
     private boolean light;
 
-    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn, boolean halOn, boolean noelOn, boolean paqOn) {
+    PrefsView(Context ctx, Host host, float vw, boolean animOn, boolean lifeOn, boolean halOn, boolean noelOn, boolean paqOn, boolean persoOn) {
         super(ctx);
         this.host = host;
         this.vw = vw;
@@ -214,6 +215,11 @@ class PrefsView extends FrameLayout {
         lifeRow.addView(lifeSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
         pages[2].addView(lifeRow, dlp2());
 
+        persoRow = row("Personnage", "En haut à gauche de l'écran");
+        persoSwitch = new SwitchView(ctx, vw, persoOn);
+        persoRow.addView(persoSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
+        pages[2].addView(persoRow, dlp2());
+
         halRow = row("Décor d'Halloween", "Du 15 octobre au 1er novembre : citrouilles, guirlandes, chauves-souris");
         halSwitch = new SwitchView(ctx, vw, halOn);
         halRow.addView(halSwitch, new LinearLayout.LayoutParams(px(3.4f), px(1.9f)));
@@ -255,7 +261,8 @@ class PrefsView extends FrameLayout {
     private void keepVisible(String id, boolean animate) {
         final View v = "dark".equals(id) ? darkRow : "light".equals(id) ? lightRow : "blue".equals(id) ? blueRow
                 : "level".equals(id) ? levelRow : "anim".equals(id) ? animRow : "life".equals(id) ? lifeRow
-                : "halloween".equals(id) ? halRow : "noel".equals(id) ? noelRow : "paques".equals(id) ? paqRow : null;
+                : "halloween".equals(id) ? halRow : "noel".equals(id) ? noelRow : "paques".equals(id) ? paqRow
+                : "perso".equals(id) ? persoRow : null;
         scroll.post(() -> {
             int h = scroll.getHeight(), y = scroll.getScrollY(), m = px(1.5f), target = y;
             if (v == null) target = 0; // rangée des thèmes : en haut
@@ -299,6 +306,7 @@ class PrefsView extends FrameLayout {
             r.add("anim");
             if ("dessin".equals(theme)) {
                 r.add("life");
+                r.add("perso");
                 if (halShown) r.add("halloween");
                 if (noelShown) r.add("noel");
                 if (paqShown) r.add("paques");
@@ -326,6 +334,7 @@ class PrefsView extends FrameLayout {
         for (ThumbView t : thumbs) t.set(clock, "photo".equals(t.theme) ? photoMini : "dessin".equals(t.theme) ? landscape : null);
         darkRow.setVisibility("minimal".equals(theme) ? VISIBLE : GONE);
         lifeRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
+        persoRow.setVisibility("dessin".equals(theme) ? VISIBLE : GONE);
         halRow.setVisibility(halShown ? VISIBLE : GONE);
         noelRow.setVisibility(noelShown ? VISIBLE : GONE);
         paqRow.setVisibility(paqShown ? VISIBLE : GONE);
@@ -383,6 +392,10 @@ class PrefsView extends FrameLayout {
         paqSwitch.set(on);
     }
 
+    void setPerso(boolean on) {
+        persoSwitch.set(on);
+    }
+
     /** Version claire (Minimal clair) ou sombre (tous les autres cas), comme dans la version web. */
     private Bitmap backdrop; // l'écran derrière le panneau, flouté (verre dépoli, comme le dock)
 
@@ -418,6 +431,7 @@ class PrefsView extends FrameLayout {
         halSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         noelSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         paqSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
+        persoSwitch.setOffColor(l ? 0x401E2A24 : 0x40FFFFFF);
         for (ThumbView t : thumbs) t.setRingColor(l ? 0xE61E2A24 : 0xFFFFFFFF);
         render(false);
     }
@@ -447,6 +461,7 @@ class PrefsView extends FrameLayout {
                 else if ("halloween".equals(id)) host.setHalloween(!halSwitch.on);
                 else if ("noel".equals(id)) host.setNoel(!noelSwitch.on);
                 else if ("paques".equals(id)) host.setPaques(!paqSwitch.on);
+                else if ("perso".equals(id)) host.setPerso(!persoSwitch.on);
                 else if ("anim".equals(id)) host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -462,6 +477,7 @@ class PrefsView extends FrameLayout {
                 else if ("halloween".equals(id)) host.setHalloween(!halSwitch.on);
                 else if ("noel".equals(id)) host.setNoel(!noelSwitch.on);
                 else if ("paques".equals(id)) host.setPaques(!paqSwitch.on);
+                else if ("perso".equals(id)) host.setPerso(!persoSwitch.on);
                 else if ("anim".equals(id)) host.setAnimations(!animSwitch.on);
                 break;
             case KeyEvent.KEYCODE_BACK:
@@ -519,6 +535,7 @@ class PrefsView extends FrameLayout {
         halRow.setBackground(rowBg("halloween".equals(rows[row])));
         noelRow.setBackground(rowBg("noel".equals(rows[row])));
         paqRow.setBackground(rowBg("paques".equals(rows[row])));
+        persoRow.setBackground(rowBg("perso".equals(rows[row])));
         keepVisible(rows[row], animate);
     }
 

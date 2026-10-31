@@ -11,7 +11,8 @@ export PATH="$JDK/bin:$PATH"
 
 rm -rf "$OUT" && mkdir -p "$OUT/classes" "$OUT/assets/photos/mini"
 cp ../launcher/photos/*.jpg "$OUT/assets/photos/" && cp ../launcher/photos/mini/*.jpg "$OUT/assets/photos/mini/"
-mkdir -p "$OUT/assets/paysages" && cp paysages/*.jpg paysages/*.png "$OUT/assets/paysages/" # illustrations des saisons (Thinking)
+mkdir -p "$OUT/assets/paysages" && cp paysages/*.jpg paysages/*.png "$OUT/assets/paysages/"
+mkdir -p "$OUT/assets/images" && cp images/*.png "$OUT/assets/images/" # personnage du thème Thinking # illustrations des saisons (Thinking)
 
 "$BT/aapt2" compile --dir res -o "$OUT/res.zip"
 # -0 jpg : les photos sont déjà compressées, les stocker telles quelles accélère leur lecture
